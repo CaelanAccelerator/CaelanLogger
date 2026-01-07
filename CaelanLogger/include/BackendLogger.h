@@ -5,7 +5,7 @@
 #include <thread>
 #include "FileUtil.h"
 
-static constexpr int QUEUE_SIZE = 38;
+static constexpr int QUEUE_SIZE = 10000;
 
 class BackendLogger
 {
@@ -19,7 +19,7 @@ public:
 	void run();
 	void stop();
 	void submit_and_acquire(Buffer*&);
-	void store();
+	void write();
 private:
 	std::atomic_flag spinlock = ATOMIC_FLAG_INIT;
 	Buffer* pendingQue[QUEUE_SIZE];
@@ -31,8 +31,5 @@ private:
 	int freeQueBack{ 0 };
 	int freeQueSize{ 0 };
 	std::unique_ptr<FileUtil> futil;
-
-	void roll();
-	bool shouldRoll(size_t);
-	std::string generateFileName();
+	size_t buf_size;
 };

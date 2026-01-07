@@ -6,33 +6,15 @@
 #include <string>
 #include <vector>
 #include <iostream>
+#include <unordered_map>
 
 #include "BackendLogger.h"
 #include "ThreadLogger.h"
 
 namespace fs = std::filesystem;
 
-// Read up to max_bytes from the end of file p (binary-safe).
-// Used to avoid loading entire large log files while still finding a token near the tail.
-static std::string read_tail(const fs::path& p, std::size_t max_bytes = 256 * 1024) {
-    std::ifstream in(p, std::ios::binary);
-    if (!in) return {};
+// ----------------------- helpers -----------------------
 
-    in.seekg(0, std::ios::end);
-    std::streamoff sz = in.tellg();
-    if (sz <= 0) return {};
-
-    std::streamoff start = sz > (std::streamoff)max_bytes ? (sz - (std::streamoff)max_bytes) : 0;
-    in.seekg(start, std::ios::beg);
-
-    std::string buf;
-    buf.resize((size_t)(sz - start));
-    in.read(buf.data(), (std::streamsize)buf.size());
-    return buf;
-}
-
-// Enumerate files in dir whose last write time is >= start_time.
-// This narrows the search to files potentially created/updated by this test run.
 static std::vector<fs::path> recent_files(const fs::path& dir, fs::file_time_type start_time) {
     std::vector<fs::path> out;
     if (!fs::exists(dir)) return out;
@@ -47,74 +29,185 @@ static std::vector<fs::path> recent_files(const fs::path& dir, fs::file_time_typ
     return out;
 }
 
-// Integration test:
-// - Starts the BackendLogger writer thread.
-// - Uses ThreadLogger to emit many lines containing a unique token.
-// - Hands off the buffer, then stops the backend.
-// - Scans recently modified files in the working directory and asserts the token was persisted.
-//
-// Notes:
-// - The retry loop with small sleeps accounts for async flush/write timing.
-// - logDir is ".", which assumes the implementation writes in the current directory or a child.
-//   Update the directory if your backend targets a specific log folder.
-TEST(LoggerIntegration, WritesExpectedTokenToFile) {
-    const fs::path logDir = "."; 
-    const auto start_time = fs::file_time_type::clock::now();
+// Streaming count of token occurrences (binary-safe, doesn't load whole file).
+static std::size_t count_token_occurrences(const fs::path& p, const std::string& token) {
+    std::ifstream in(p, std::ios::binary);
+    if (!in) return 0;
 
-    const size_t bufSize = 256;
+    constexpr std::size_t kChunk = 64 * 1024;
+    std::string buf;
+    buf.resize(kChunk);
+
+    std::string carry; // keep overlap to not miss matches across chunk boundary
+    carry.reserve(token.size());
+
+    std::size_t count = 0;
+    while (in) {
+        in.read(buf.data(), (std::streamsize)buf.size());
+        std::streamsize n = in.gcount();
+        if (n <= 0) break;
+
+        std::string view;
+        view.reserve(carry.size() + (std::size_t)n);
+        view.append(carry);
+        view.append(buf.data(), (std::size_t)n);
+
+        std::size_t pos = 0;
+        while (true) {
+            pos = view.find(token, pos);
+            if (pos == std::string::npos) break;
+            ++count;
+            pos += token.size();
+        }
+
+        // keep last (token.size()-1) bytes as overlap
+        if (token.size() > 1) {
+            std::size_t keep = token.size() - 1;
+            if (view.size() > keep) carry.assign(view.end() - keep, view.end());
+            else carry = view;
+        }
+        else {
+            carry.clear();
+        }
+    }
+    return count;
+}
+
+// Find all recent files that contain token, and count occurrences per file.
+static std::unordered_map<std::string, std::size_t>
+find_token_in_recent_files(const fs::path& logDir,
+    fs::file_time_type start_time,
+    const std::string& token) {
+    std::unordered_map<std::string, std::size_t> hits;
+    auto files = recent_files(logDir, start_time);
+    for (const auto& p : files) {
+        auto c = count_token_occurrences(p, token);
+        if (c > 0) hits[p.string()] = c;
+    }
+    return hits;
+}
+
+static std::string make_unique_token(const char* tag) {
+    auto t = (long long)std::chrono::high_resolution_clock::now().time_since_epoch().count();
+    return std::string("<<") + tag + "_" + std::to_string(t) + ">>";
+}
+
+static std::string make_payload(std::size_t bytes) {
+    // deterministic payload, avoid huge allocations in loops
+    std::string s;
+    s.resize(bytes, 'X');
+    return s;
+}
+
+// Delete only files that contain *our* token, so tests don't pollute workspace.
+static void cleanup_files_with_token(const fs::path& logDir,
+    fs::file_time_type start_time,
+    const std::string& token) {
+    auto hits = find_token_in_recent_files(logDir, start_time, token);
+    for (auto& kv : hits) {
+        std::error_code ec;
+        fs::remove(fs::path(kv.first), ec);
+        // ignore errors on cleanup
+    }
+}
+
+// Retry helper: because backend is async and filesystem timestamps can be coarse.
+static std::unordered_map<std::string, std::size_t>
+retry_find(const fs::path& logDir, fs::file_time_type start_time, const std::string& token,
+    int attempts = 10, int sleep_ms = 50) {
+    for (int i = 0; i < attempts; ++i) {
+        auto hits = find_token_in_recent_files(logDir, start_time, token);
+        if (!hits.empty()) return hits;
+        std::this_thread::sleep_for(std::chrono::milliseconds(sleep_ms));
+    }
+    return {};
+}
+
+TEST(LoggerIntegration, HeavySingleThread_ManyHandoffs_NoLoss) {
+    const fs::path logDir = ".";
+    auto start_time = fs::file_time_type::clock::now() - std::chrono::seconds(1);
+
+    const size_t bufSize = 6400;           
+    const int kLines = 50'000;            
+    const int kHandoffEvery = 200;        
+    const std::string token = make_unique_token("TL_HEAVY_1T");
+    const std::string payload = make_payload(180); 
+
     BackendLogger backend(bufSize);
     backend.start();
 
-    // Create a unique token to search in the produced logs to avoid false positives.
-    const std::string token =
-        std::string("<<TL_DL_ITEST_TOKEN_") +
-        std::to_string((long long)std::chrono::high_resolution_clock::now().time_since_epoch().count()) +
-        ">>";
-
     {
-        // Scope ensures ThreadLogger destructor runs before stopping the backend.
         ThreadLogger tl(bufSize, &backend);
-        for (int i = 0; i < 2000; ++i) {
-            tl << "hello " << i << " " << token << '\n';
+        for (int i = 0; i < kLines; ++i) {
+            tl << "L=" << i << " " << token << " " << payload << "\n";
+            if ((i + 1) % kHandoffEvery == 0) tl.handoff();
         }
-        // Ensure buffered data is handed off to the backend for persistence.
         tl.handoff();
     }
 
-    // Stop writer thread and finalize any pending writes.
     backend.stop();
 
-    // Retry a few times to tolerate filesystem timestamp granularity and async persistence.
-    bool found = false;
-    for (int attempt = 0; attempt < 10 && !found; ++attempt) {
-        auto files = recent_files(logDir, start_time);
-
-        for (const auto& p : files) {   
-            std::string tail = read_tail(p, 256 * 1024);
-            if (tail.find(token) != std::string::npos) {
-                found = true;
-                break;
-            }
-        }
-
-        if (!found) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(50));
-        }
-    }
-
-    // Helpful diagnostics on failure to aid debugging in CI/local runs.
-    if (!found) {
-        std::cerr << "PWD=" << fs::current_path() << "\n";
+    auto hits = retry_find(logDir, start_time, token);
+    if (hits.empty()) {
         std::cerr << "Token not found: " << token << "\n";
-        auto files = recent_files(logDir, start_time);
-        std::cerr << "Recent files count=" << files.size() << "\n";
-        for (auto& p : files) {
-            std::error_code ec;
-            auto sz = fs::file_size(p, ec);
-            std::cerr << "  file=" << p.string()
-                << " size=" << (ec ? -1 : (long long)sz) << "\n";
-        }
+        std::cerr << "PWD=" << fs::current_path() << "\n";
+    }
+    ASSERT_FALSE(hits.empty());
+
+    std::size_t total = 0;
+    for (auto& kv : hits) total += kv.second;
+
+    EXPECT_EQ(total, (std::size_t)kLines) << "Expected exactly one token per line.";
+    cleanup_files_with_token(logDir, start_time, token);
+}
+
+TEST(LoggerIntegration, HeavyMultiThread_PerThreadNoLoss) {
+    const fs::path logDir = ".";
+    auto start_time = fs::file_time_type::clock::now() - std::chrono::seconds(1);
+
+    const size_t bufSize = 2000;
+    const int kThreads = 6;
+    const int kLinesPerThread = 5000;
+    const int kHandoffEvery = 300;
+    const std::string payload = make_payload(120);
+
+    BackendLogger backend(bufSize);
+    backend.start();
+
+    std::vector<std::string> tokens;
+    tokens.reserve(kThreads);
+    for (int t = 0; t < kThreads; ++t) {
+        tokens.push_back(make_unique_token(("TL_MT_T" + std::to_string(t)).c_str()));
     }
 
-    EXPECT_TRUE(found);
+    std::vector<std::thread> ths;
+    ths.reserve(kThreads);
+
+    for (int t = 0; t < kThreads; ++t) {
+        ths.emplace_back([&, t] {
+            ThreadLogger tl(bufSize, &backend);
+            for (int i = 0; i < kLinesPerThread; ++i) {
+                tl << "T=" << t << " I=" << i << " " << tokens[t] << " " << payload << "\n";
+                if ((i + 1) % kHandoffEvery == 0) tl.handoff();
+            }
+            tl.handoff();
+            });
+    }
+
+    for (auto& th : ths) th.join();
+    backend.stop();
+
+    // 对每个 token 分别扫描（避免一个大 token 混在一起不好定位问题）
+    for (int t = 0; t < kThreads; ++t) {
+        auto hits = retry_find(logDir, start_time, tokens[t]);
+        ASSERT_FALSE(hits.empty()) << "Missing token for thread " << t;
+
+        std::size_t total = 0;
+        for (auto& kv : hits) total += kv.second;
+
+        EXPECT_EQ(total, (std::size_t)kLinesPerThread)
+            << "Thread " << t << " token count mismatch.";
+        
+    }cleanup_files_with_token(logDir, start_time, tokens[0]);
 }
+

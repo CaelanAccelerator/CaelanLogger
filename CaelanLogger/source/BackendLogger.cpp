@@ -2,12 +2,12 @@
 #include "SpinGuard.h"
 #include "TimeUtil.h"
 
-BackendLogger::BackendLogger(size_t bufSize, std::string dir) : futil(std::make_unique<FileUtil>(generateFileName())) {
+BackendLogger::BackendLogger(size_t bufSize, std::string dir) : futil(std::make_unique<FileUtil>()) {
 	for (size_t i = 0; i < QUEUE_SIZE; i++)
 	{
 		freeQue[i] = new Buffer(bufSize);
 	}
-	freeQueBack = QUEUE_SIZE;
+	freeQueBack = QUEUE_SIZE - 1;
 	freeQueSize = QUEUE_SIZE;
 	freeAvailable.store(freeQueSize > 0, std::memory_order_release);
 }  
@@ -27,16 +27,16 @@ void BackendLogger::stop() {
 void BackendLogger::run() {
 	while (running.load(std::memory_order_acquire)) {
 		if (pendingQueSize > 0) {
-			store();
+			write();
 		}
 		else {
 			std::this_thread::sleep_for(std::chrono::milliseconds(1));
 		}
 	}
 
-	// drain?finsh pending queue before ending
+	// drain? finish pending queue before ending
 	while (pendingQueSize > 0) {
-		store();
+		write();
 	}
 }
 
@@ -65,26 +65,7 @@ void BackendLogger::submit_and_acquire(Buffer*& fullBuffer)
 	--freeQueSize;
 }
 
-inline void BackendLogger::roll()
-{
-	futil.reset(new FileUtil(generateFileName()));
-}
-
-inline bool BackendLogger::shouldRoll(size_t bufSize)
-{
-	static const size_t FILE_MAX_SIZE = 256ull * 1024 * 1024; // e.g. 256MB
-	return futil->getWrittenBytes() + bufSize > FILE_MAX_SIZE;
-}
-
-std::string BackendLogger::generateFileName()
-{
-	static int order = 0;
-	std::string timeStr = LogTime::nowDateString();
-	order = (order + 1) % 10000;
-	return timeStr + " LOG " + std::to_string(order);
-}
-
-void BackendLogger::store()
+void BackendLogger::write()
 {
 	size_t numBuf{ 0 };
 	Buffer* buffer[QUEUE_SIZE];
@@ -101,19 +82,13 @@ void BackendLogger::store()
 			--pendingQueSize;
 		}
 	}
-
 	for (size_t i = 0; i < numBuf; i++)
 	{
 		const char* data = buffer[i]->getBuffer();
 		size_t size = buffer[i]->getSize();
-		if (shouldRoll(size))
-		{
-			roll();
-		}
 		futil->append(data, size);
 		buffer[i]->reset();
 	}
-
 	{
 		SpinGuard guard(spinlock);
 		for (size_t i = 0; i < numBuf; i++)
