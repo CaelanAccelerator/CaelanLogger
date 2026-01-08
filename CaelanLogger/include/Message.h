@@ -7,7 +7,7 @@ public:
 	~Message();
 
 private:
-	Level level;
+	CaelanLogger::Level level;
 	std::string content;
 };
 

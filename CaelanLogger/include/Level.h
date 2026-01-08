@@ -1,8 +1,12 @@
-enum Level
+#pragma once
+namespace CaelanLogger
 {
-	INFO,
-	DEBUG,
-	WARNING,
-	ERROR,
-	FATAL
-};
+	enum Level
+	{
+		INFO,
+		DEBUG,
+		WARNING,
+		ERROR,
+		FATAL
+	};
+}

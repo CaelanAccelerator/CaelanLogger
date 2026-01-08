@@ -4,6 +4,7 @@
 #include <memory>
 #include <thread>
 #include "FileUtil.h"
+#include "Buffer.h"
 
 static constexpr int QUEUE_SIZE = 10000;
 

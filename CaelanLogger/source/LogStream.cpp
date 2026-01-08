@@ -1,106 +1,159 @@
-//#include "ThreadLogger.h"
-//#include <algorithm>
-//#include <cstring> 
-//
-//ThreadLogger::ThreadLogger(Buffer* buf):cur_buffer(buf){}
-//
-//
-//void ThreadLogger::assignBuffer(Buffer* buffer) {
-//    cur_buffer = buffer;
-//}
-//
-//template<typename T>
-//void ThreadLogger::convertInt(T number) {
-//    if (cur_buffer->capacity - cur_buffer->size < 32)
-//        return;
-//
-//    if (!number) {
-//        cur_buffer->buffer[cur_buffer->size++] = '0';
-//        return;
-//    }
-//    char* ptr = cur_buffer->buffer + cur_buffer->size;
-//
-//    if (number < 0)
-//    {
-//        *ptr++ = '-';
-//        cur_buffer->size += 1;
-//    }
-//    size_t i = 0;
-//    static const char digits[] = "9876543210123456789";
-//    static const char* zero = digits + 9;
-//    for (; number != 0; i++)
-//    {
-//        int remainder = static_cast<int>(number % 10);
-//        ptr[i] = zero[remainder];
-//        number /= 10;
-//    }
-//    std::reverse(ptr, ptr + i);
-//    cur_buffer->size += i;
-//}
-//
-//ThreadLogger& ThreadLogger::operator<<(bool express) {
-//    express ? cur_buffer->add("true", 4) : cur_buffer->add("false", 5);
-//    return *this;
-//}
-//
-//ThreadLogger& ThreadLogger::operator<<(int number) {
-//    convertInt(number);
-//    return *this;
-//}
-//
-//ThreadLogger& ThreadLogger::operator<<(unsigned int number) {
-//    convertInt(number);
-//    return *this;
-//}
-//
-//ThreadLogger& ThreadLogger::operator<<(long number) {
-//    convertInt(number);
-//    return *this;
-//}
-//
-//ThreadLogger& ThreadLogger::operator<<(unsigned long number) {
-//    convertInt(number);
-//    return *this;
-//}
-//
-//ThreadLogger& ThreadLogger::operator<<(long long number) {
-//    convertInt(number);
-//    return *this;
-//}
-//
-//ThreadLogger& ThreadLogger::operator<<(unsigned long long number) {
-//    convertInt(number);
-//    return *this;
-//}
-//
-//ThreadLogger& ThreadLogger::operator<<(float number) {
-//    *this << static_cast<double>(number);
-//    return *this;
-//}
-//
-//ThreadLogger& ThreadLogger::operator<<(double number) {
-//    char temp[32];
-//    snprintf(temp, sizeof(temp), "%.12g", number);
-//    cur_buffer->add(temp, std::strlen(temp));
-//    return *this;
-//}
-//
-//ThreadLogger& ThreadLogger::operator<<(const char str) {
-//    cur_buffer->add(str);
-//    return *this;
-//}
-//
-//ThreadLogger& ThreadLogger::operator<<(const char* str) {
-//    cur_buffer->add(str, std::strlen(str));
-//    return *this;
-//}
-//
-//ThreadLogger& ThreadLogger::operator<<(const unsigned char* str) {
-//    cur_buffer->add(reinterpret_cast<const char*>(str), std::strlen(reinterpret_cast<const char*>(str)));
-//    return *this;
-//}
-//
-//ThreadLogger& ThreadLogger::operator<<(const std::string& str) {
-//    cur_buffer->add(str.c_str(), str.length());
-//    return *this;
-//}
+#include "LogStream.h"
+#include <algorithm>
+#include <cstring> 
+#include "Level.h"
+
+LogStream::LogStream(ThreadLogger* target, CaelanLogger::Level level) : target(target)
+{
+    cur_buffer = target ? target->cur_buffer : nullptr;
+    if (!cur_buffer) return;
+
+    if (cur_buffer->getRemaining() < kMaxLineLength)
+    {
+        target->handoff();
+		// after handoff, the target's cur_buffer will change
+		// if we get nullptr, we just leave cur_buffer as nullptr and drop further writes
+        cur_buffer = target ? target->cur_buffer : nullptr;
+    }
+    addLevel(level);
+    addTime();
+}
+
+LogStream::~LogStream()
+{
+    if (cur_buffer) cur_buffer->add('\n');
+}
+
+LogStream& LogStream::operator<<(bool express) {
+    if (!cur_buffer) return *this;
+
+    const char* s = express ? "true" : "false";
+    const int len = express ? 4 : 5;
+
+    cur_buffer->add(s, len);
+    return *this;
+}
+
+LogStream& LogStream::operator<<(int number) {
+    if (!cur_buffer) return *this;
+
+    convertInt(number);
+    return *this;
+}
+
+LogStream& LogStream::operator<<(unsigned int number) {
+    if (!cur_buffer) return *this;
+
+    convertInt(number);
+    return *this;
+}
+
+LogStream& LogStream::operator<<(long number) {
+    if (!cur_buffer) return *this;
+
+    convertInt(number);
+    return *this;
+}
+
+LogStream& LogStream::operator<<(unsigned long number) {
+    if (!cur_buffer) return *this;
+
+    convertInt(number);
+    return *this;
+}
+
+LogStream& LogStream::operator<<(long long number) {
+    if (!cur_buffer) return *this;
+
+    convertInt(number);
+    return *this;
+}
+
+LogStream& LogStream::operator<<(unsigned long long number) {
+    if (!cur_buffer) return *this;
+
+    convertInt(number);
+    return *this;
+}
+
+LogStream& LogStream::operator<<(float number) {
+    *this << static_cast<double>(number);
+    return *this;
+}
+
+LogStream& LogStream::operator<<(double number) {
+    if (!cur_buffer) return *this;
+
+    char temp[32];
+    int len = std::snprintf(temp, sizeof(temp), "%.12g", number);
+    if (len <= 0) return *this;
+
+    cur_buffer->add(temp, len);
+    return *this;
+}
+
+LogStream& LogStream::operator<<(const char str) {
+    if (!cur_buffer) return *this;
+
+    cur_buffer->add(str);
+    return *this;
+}
+
+LogStream& LogStream::operator<<(const char* str) {
+    if (!cur_buffer) return *this;
+
+    int len = (int)std::strlen(str);
+    cur_buffer->add(str, len);
+    return *this;
+}
+
+LogStream& LogStream::operator<<(const unsigned char* str) {
+    const char* s = reinterpret_cast<const char*>(str);
+    if (!cur_buffer) return *this;
+
+    int len = std::strlen(s);
+    cur_buffer->add(s, len);
+    return *this;
+}
+
+LogStream& LogStream::operator<<(const std::string& str) {
+    if (!cur_buffer) return *this;
+
+    int len = str.length();
+    cur_buffer->add(str.c_str(), len);
+    return *this;
+}
+
+void LogStream::addLevel(CaelanLogger::Level level) {
+    if (!cur_buffer) return;
+    
+    switch (level)  
+    {
+    case CaelanLogger::Level::INFO:
+        cur_buffer->add("INFO ", 5); 
+        break;
+    case CaelanLogger::Level::DEBUG:
+		cur_buffer->add("DEBUG ", 6);
+        break;
+    case CaelanLogger::Level::WARNING:
+        cur_buffer->add("WARNING ", 8);
+        break;
+    case CaelanLogger::Level::ERROR:
+        cur_buffer->add("ERROR ", 7);
+        break;
+    case CaelanLogger::Level::FATAL:
+        cur_buffer->add("FATAL ", 6);
+        break;
+    default:
+		cur_buffer->add("INFO ", 5);
+        break;
+    }
+}
+
+void LogStream::addTime()
+{
+    if (!cur_buffer) return;
+    std::string logTime = LogTime::nowString();
+    cur_buffer->add(logTime.c_str(), logTime.length());
+    cur_buffer->add(" ", 1);
+}

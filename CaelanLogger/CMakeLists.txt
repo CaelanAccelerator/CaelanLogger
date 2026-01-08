@@ -1,7 +1,21 @@
 ﻿add_library(caelogger
     source/Buffer.cpp
     source/ThreadLogger.cpp
- "include/ThreadLogger.h" "source/ThreadLogger.cpp" "include/BackendLogger.h" "source/BackendLogger.cpp" "include/SpinGuard.h" "source/FileUtil.cpp" "include/FileUtil.h" "include/AsycLogger.h"  "include/TimeUtil.h" "source/TimeUtil.cpp"   "include/Message.h" "source/Message.cpp" "include/Level.h")
+ "include/ThreadLogger.h"
+ "source/ThreadLogger.cpp"
+ "include/BackendLogger.h"
+ "source/BackendLogger.cpp"
+ "include/SpinGuard.h"
+ "source/FileUtil.cpp"
+ "include/FileUtil.h"
+ "include/AsycLogger.h"
+ "include/TimeUtil.h"
+ "source/TimeUtil.cpp"
+ "include/Message.h"
+ "source/Message.cpp" 
+ "include/Level.h"
+ "include/LogStream.h"
+ "source/LogStream.cpp")
 
 target_include_directories(caelogger PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include
