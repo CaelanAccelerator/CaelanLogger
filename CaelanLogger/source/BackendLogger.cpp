@@ -38,17 +38,18 @@ void BackendLogger::stop() {
 
 
 void BackendLogger::run() {
-	while (running.load(std::memory_order_acquire)) {
-		if (pendingQueSize > 0) {
-			write();
-		}
-		else {
-			std::this_thread::sleep_for(std::chrono::milliseconds(1));
-		}
+	while (running.load(std::memory_order_acquire)) {		
+		write();
 	}
 
 	// drain? finish pending queue before ending
-	while (pendingQueSize > 0) {
+	while (true) {
+		bool empty = false;
+		{
+			SpinGuard g(spinlock);
+			empty = (pendingQueSize == 0);
+		}
+		if (empty) break;
 		write();
 	}
 }
