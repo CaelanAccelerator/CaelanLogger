@@ -4,6 +4,7 @@
 #include <errno.h>
 #include <stdexcept>
 #include <TimeUtil.h>
+#include <cstring>
 
 FileUtil::FileUtil(std::string dir, std::string prefix)   
     : dir_(std::move(dir)), prefix_(std::move(prefix))    
@@ -78,7 +79,7 @@ inline void FileUtil::roll()
     ::close(fd);
     if (!openFile(generateFileName())) 
     {
-        throw std::runtime_error("Failed to roll log file");
+        throw std::runtime_error(std::string("write() failed: ") + std::strerror(errno));
     }
 	writtenBytes = 0;
 }
