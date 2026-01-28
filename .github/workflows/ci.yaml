@@ -31,7 +31,7 @@ jobs:
         run: cmake --build build
 
       - name: Test
-        run: ctest --test-dir build -R LoggerIntegration.HeavyMultiThread --output-on-failure -VV
+        run: ctest --test-dir build --output-on-failure
 
   tsan:
     runs-on: ubuntu-latest
