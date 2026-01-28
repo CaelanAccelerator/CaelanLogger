@@ -17,16 +17,7 @@ BackendLogger::~BackendLogger() {
 	stop();
 }
 
-//void BackendLogger::start() {
-//	running.store(true, std::memory_order_release);
-//	writer = std::thread(&BackendLogger::run, this);
-//}
-
 void BackendLogger::start() {
-	if (writer.joinable()) {
-		std::cerr << "[BUG] start() called while writer.joinable()==true\n";
-		std::terminate();
-	}
 	running.store(true, std::memory_order_release);
 	writer = std::thread(&BackendLogger::run, this);
 }
