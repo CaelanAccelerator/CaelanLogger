@@ -1,6 +1,7 @@
 #include "BackendLogger.h"
 #include "SpinGuard.h"
 #include "TimeUtil.h"
+#include <iostream>
 
 BackendLogger::BackendLogger(size_t bufSize, std::string dir) : futil(std::make_unique<FileUtil>()) {
 	for (size_t i = 0; i < QUEUE_SIZE; i++)
@@ -16,7 +17,16 @@ BackendLogger::~BackendLogger() {
 	stop();
 }
 
+//void BackendLogger::start() {
+//	running.store(true, std::memory_order_release);
+//	writer = std::thread(&BackendLogger::run, this);
+//}
+
 void BackendLogger::start() {
+	if (writer.joinable()) {
+		std::cerr << "[BUG] start() called while writer.joinable()==true\n";
+		std::terminate();
+	}
 	running.store(true, std::memory_order_release);
 	writer = std::thread(&BackendLogger::run, this);
 }
@@ -25,6 +35,7 @@ void BackendLogger::stop() {
 	running.store(false, std::memory_order_release);
 	if (writer.joinable()) writer.join();
 }
+
 
 void BackendLogger::run() {
 	while (running.load(std::memory_order_acquire)) {
