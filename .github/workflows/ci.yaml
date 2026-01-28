@@ -33,3 +33,29 @@ jobs:
       - name: Test
         run: ctest --test-dir build -R LoggerIntegration.HeavyMultiThread --output-on-failure -VV
 
+  tsan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build clang
+
+      - name: Configure (TSan)
+        run: |
+          cmake -S . -B tsan -G Ninja \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_CXX_COMPILER=clang++ \
+            -DCMAKE_CXX_FLAGS="-fsanitize=thread -fno-omit-frame-pointer -g" \
+            -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=thread"
+
+      - name: Build
+        run: cmake --build tsan
+
+      - name: Test (TSan)
+        env:
+          TSAN_OPTIONS: "halt_on_error=1:abort_on_error=1:second_deadlock_stack=1"
+        run: |
+          ctest --test-dir tsan --output-on-failure -R LoggerIntegration.HeavyMultiThread
