@@ -18,6 +18,10 @@ BackendLogger::~BackendLogger() {
 }
 
 void BackendLogger::start() {
+	bool expected = false;
+	if (!running.compare_exchange_strong(expected, true, std::memory_order_acq_rel)) {
+		return; // already running
+	}
 	running.store(true, std::memory_order_release);
 	writer = std::thread(&BackendLogger::run, this);
 }
