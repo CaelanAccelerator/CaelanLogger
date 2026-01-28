@@ -14,6 +14,7 @@ LogStream::LogStream(ThreadLogger* target, CaelanLogger::Level level) : target(t
 		// after handoff, the target's cur_buffer will change
 		// if we get nullptr, we just leave cur_buffer as nullptr and drop further writes
         cur_buffer = target ? target->cur_buffer : nullptr;
+        if (!cur_buffer) return;
     }
     addLevel(level);
     addTime();

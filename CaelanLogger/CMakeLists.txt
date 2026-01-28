@@ -8,13 +8,14 @@
  "include/SpinGuard.h"
  "source/FileUtil.cpp"
  "include/FileUtil.h"
- "include/AsycLogger.h"
+ "include/AsyncLogger.h"
  "include/TimeUtil.h"
  "source/TimeUtil.cpp"
  "include/Message.h"
  "source/Message.cpp" 
  "include/Level.h"
  "include/LogStream.h"
+ 
  "source/LogStream.cpp")
 
 target_include_directories(caelogger PUBLIC

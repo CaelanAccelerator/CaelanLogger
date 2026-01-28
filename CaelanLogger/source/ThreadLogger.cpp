@@ -10,9 +10,13 @@ ThreadLogger::ThreadLogger(size_t sizeBuf, BackendLogger* bl)
 
 ThreadLogger::~ThreadLogger()
 {
-    delete cur_buffer;
-    cur_buffer = nullptr;
-    backend_logger = nullptr;
+    if (cur_buffer)
+    {
+		handoff();
+        delete cur_buffer;
+        cur_buffer = nullptr;
+        backend_logger = nullptr;
+    }
 }
 
 void ThreadLogger::handoff()

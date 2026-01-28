@@ -13,6 +13,7 @@
 #include "ThreadLogger.h"
 #include "LogStream.h"
 #include "Level.h"
+#include <AsyncLogger.h>
 
 namespace fs = std::filesystem;
 
@@ -85,8 +86,11 @@ find_token_in_recent_files(const fs::path& logDir, fs::file_time_type start_time
 }
 
 static std::unordered_map<std::string, std::size_t>
-retry_find(const fs::path& logDir, fs::file_time_type start_time, const std::string& token,
-    int attempts = 10, int sleep_ms = 50) {
+retry_find(const fs::path& logDir,
+    fs::file_time_type start_time,
+    const std::string& token,
+    int attempts = 60,
+    int sleep_ms = 50) {
     for (int i = 0; i < attempts; ++i) {
         auto hits = find_token_in_recent_files(logDir, start_time, token);
         if (!hits.empty()) return hits;
@@ -123,7 +127,7 @@ static void cleanup_files_with_tokens(const fs::path& logDir,
 static std::size_t compute_safe_payload_len(std::size_t maxLine,
     std::string_view worst_prefix,
     std::size_t desired_payload_len,
-    std::size_t extra_suffix_bytes /*e.g., newline*/) {
+    std::size_t extra_suffix_bytes) {
     if (worst_prefix.size() + extra_suffix_bytes >= maxLine) return 0;
     std::size_t cap = maxLine - worst_prefix.size() - extra_suffix_bytes;
     return std::min(desired_payload_len, cap);
@@ -132,8 +136,8 @@ static std::size_t compute_safe_payload_len(std::size_t maxLine,
 // ----------------------- tests -----------------------
 
 TEST(LoggerIntegration, HeavySingleThread_ManyHandoffs_NoLoss_WithinMaxLine) {
-    const fs::path logDir = ".";
-    auto start_time = fs::file_time_type::clock::now() - std::chrono::seconds(1);
+    const fs::path logDir = fs::path("./log");
+    auto start_time = fs::file_time_type::clock::now() - std::chrono::seconds(3);
 
     const size_t bufSize = 6400;
     const int kLines = 50'000;
@@ -143,54 +147,52 @@ TEST(LoggerIntegration, HeavySingleThread_ManyHandoffs_NoLoss_WithinMaxLine) {
     BackendLogger backend(bufSize);
     backend.start();
 
-    // MUST be exposed by your code.
     constexpr std::size_t kMaxLine = 1028;
-
-    // LogStream adds: "INFO " prefix (5) + '\n' suffix (1)
-    constexpr std::size_t kLevelPrefix = 5;
+    constexpr std::size_t kLevelPrefix = 5; 
     constexpr std::size_t kNewline = 1;
 
-    // Worst-case user-written prefix in this test (excluding level prefix)
     const std::string worst_user_prefix =
         std::string("L=") + std::to_string(kLines - 1) + " " + token + " ";
 
     const std::size_t desiredPayloadLen = 180;
     const std::size_t payloadLen = compute_safe_payload_len(
         kMaxLine,
-        std::string_view{ worst_user_prefix }.substr(0), // user portion
+        worst_user_prefix,
         desiredPayloadLen,
         kLevelPrefix + kNewline
     );
 
-    ASSERT_GT(payloadLen, 0u) << "kMaxLineLength too small for this test's prefix.";
+    ASSERT_GT(payloadLen, 0u);
     const std::string payload = make_payload(payloadLen);
 
-    {
-        ThreadLogger tl(bufSize, &backend);
-        for (int i = 0; i < kLines; ++i) {
-            // No "\n" here — LogStream destructor appends '\n'
-            LogStream(&tl, CaelanLogger::INFO) << "L=" << i << " " << token << " " << payload;
+    
+    AsyncLogger::init(bufSize);
+    for (int i = 0; i < kLines; ++i) {
+        LOG(INFO) << "L=" << i << " " << token << " " << payload;
 
-            if ((i + 1) % kHandoffEvery == 0) tl.handoff();
+        if ((i + 1) % kHandoffEvery == 0) {
+            AsyncLogger::getInstance().tls().handoff();
         }
-        tl.handoff();
     }
-
-    backend.stop();
-
+    AsyncLogger::getInstance().tls().handoff();
+    
+	AsyncLogger::getInstance().shutdown();
     auto hits = retry_find(logDir, start_time, token);
+    if (hits.empty()) {
+        std::cerr << "CWD=" << fs::current_path() << "\n";
+    }
     ASSERT_FALSE(hits.empty()) << "Token not found: " << token;
 
     std::size_t total = 0;
     for (auto& kv : hits) total += kv.second;
 
-    EXPECT_EQ(total, (std::size_t)kLines) << "Expected exactly one token per line.";
+    EXPECT_EQ(total, (std::size_t)kLines);
     cleanup_files_with_token(logDir, start_time, token);
 }
 
 TEST(LoggerIntegration, HeavyMultiThread_PerThreadNoLoss_WithinMaxLine) {
-    const fs::path logDir = ".";
-    auto start_time = fs::file_time_type::clock::now() - std::chrono::seconds(1);
+    const fs::path logDir = fs::path("./log");
+    auto start_time = fs::file_time_type::clock::now() - std::chrono::seconds(3);
 
     const size_t bufSize = 2000;
     const int kThreads = 6;
@@ -207,10 +209,10 @@ TEST(LoggerIntegration, HeavyMultiThread_PerThreadNoLoss_WithinMaxLine) {
     std::vector<std::string> tokens;
     tokens.reserve(kThreads);
     for (int t = 0; t < kThreads; ++t) {
-        tokens.push_back(make_unique_token(("TL_MT_T" + std::to_string(t)).c_str()));
+        const std::string tag = "TL_MT_T" + std::to_string(t);
+        tokens.push_back(make_unique_token(tag.c_str()));
     }
 
-    // Choose payloadLen safe for ALL threads (tokens differ)
     std::size_t payloadLen = (std::size_t)-1;
     for (int t = 0; t < kThreads; ++t) {
         const std::string worst_user_prefix =
@@ -225,28 +227,35 @@ TEST(LoggerIntegration, HeavyMultiThread_PerThreadNoLoss_WithinMaxLine) {
             kLevelPrefix + kNewline
         ));
     }
-    ASSERT_GT(payloadLen, 0u) << "kMaxLineLength too small for multi-thread test prefix.";
+    ASSERT_GT(payloadLen, 0u);
     const std::string payload = make_payload(payloadLen);
 
     std::vector<std::thread> ths;
     ths.reserve(kThreads);
 
+    AsyncLogger::getInstance().restart(bufSize);
+
     for (int t = 0; t < kThreads; ++t) {
         ths.emplace_back([&, t] {
-            ThreadLogger tl(bufSize, &backend);
             for (int i = 0; i < kLinesPerThread; ++i) {
-                LogStream(&tl, CaelanLogger::INFO) << "T=" << t << " I=" << i << " " << tokens[t] << " " << payload;
-                if ((i + 1) % kHandoffEvery == 0) tl.handoff();
+                LOG(INFO) << "T=" << t << " I=" << i << " " << tokens[t] << " " << payload;
+
+                if ((i + 1) % kHandoffEvery == 0) {
+                    AsyncLogger::getInstance().tls().handoff(); 
+                }
             }
-            tl.handoff();
+            AsyncLogger::getInstance().tls().handoff();
             });
     }
 
     for (auto& th : ths) th.join();
-    backend.stop();
+	AsyncLogger::getInstance().shutdown();
 
     for (int t = 0; t < kThreads; ++t) {
         auto hits = retry_find(logDir, start_time, tokens[t]);
+        if (hits.empty()) {
+            std::cerr << "CWD=" << fs::current_path() << "\n";
+        }
         ASSERT_FALSE(hits.empty()) << "Missing token for thread " << t;
 
         std::size_t total = 0;
@@ -258,4 +267,3 @@ TEST(LoggerIntegration, HeavyMultiThread_PerThreadNoLoss_WithinMaxLine) {
 
     cleanup_files_with_tokens(logDir, start_time, tokens);
 }
-

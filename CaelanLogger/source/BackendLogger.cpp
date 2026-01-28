@@ -12,7 +12,9 @@ BackendLogger::BackendLogger(size_t bufSize, std::string dir) : futil(std::make_
 	freeAvailable.store(freeQueSize > 0, std::memory_order_release);
 }  
 
-BackendLogger::~BackendLogger() = default;
+BackendLogger::~BackendLogger() {
+	stop();
+}
 
 void BackendLogger::start() {
 	running.store(true, std::memory_order_release);
@@ -99,4 +101,17 @@ void BackendLogger::write()
 		freeQueSize += numBuf;
 		freeAvailable.store(true, std::memory_order_release);
 	}
+}
+
+void BackendLogger::restart(size_t bufSize)
+{
+	futil->~FileUtil();
+	new (futil.get()) FileUtil();
+	for (size_t i = 0; i < QUEUE_SIZE; i++)
+	{
+		freeQue[i] = new Buffer(bufSize);
+	}
+	freeQueBack = QUEUE_SIZE - 1;
+	freeQueSize = QUEUE_SIZE;
+	freeAvailable.store(freeQueSize > 0, std::memory_order_release);
 }

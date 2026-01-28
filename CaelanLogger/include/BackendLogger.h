@@ -7,7 +7,7 @@
 #include "Buffer.h"
 
 static constexpr int QUEUE_SIZE = 10000;
-
+static constexpr int URGENT_QUEUE_SIZE = 2000;
 class BackendLogger
 {
 public:
@@ -21,6 +21,7 @@ public:
 	void stop();
 	void submit_and_acquire(Buffer*&);
 	void write();
+	void restart(size_t);
 private:
 	std::atomic_flag spinlock = ATOMIC_FLAG_INIT;
 	Buffer* pendingQue[QUEUE_SIZE];

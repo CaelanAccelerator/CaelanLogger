@@ -1,5 +1,6 @@
 #pragma once
 #include <string>
+#include <filesystem>
 
 constexpr size_t FILE_MAX_SIZE = 256ull * 1024 * 1024;
 
@@ -10,7 +11,7 @@ public:
 	*  @brief open the file we need to write
 	*  @param name of the file
 	*/
-	explicit FileUtil();
+	explicit FileUtil(std::string dir = "./log", std::string prefix = "caelogger");
 
 	/**
 	*  @brief close the file and clean resources
@@ -24,13 +25,18 @@ public:
 	*/
 	void append(const char* data, size_t len);
 
+
 	unsigned long getWrittenBytes() const { return writtenBytes; }
 private:
+	std::filesystem::path dir_;
+	std::string prefix_;
+
 	int fd{ -1 };
 	unsigned long writtenBytes{ 0 };
 	bool shouldRoll(size_t bufSize);
 	void roll();
 	bool openFile(const std::string& filename);
 	void closeFile();
+	std::string makeFullPath(const std::string& filename) const;
 	std::string generateFileName();
 };

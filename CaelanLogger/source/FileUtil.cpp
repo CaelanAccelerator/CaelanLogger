@@ -5,7 +5,15 @@
 #include <stdexcept>
 #include <TimeUtil.h>
 
-FileUtil::FileUtil() = default;
+FileUtil::FileUtil(std::string dir, std::string prefix)   
+    : dir_(std::move(dir)), prefix_(std::move(prefix))    
+{
+	std::error_code ec;// to make sure directory exists
+    std::filesystem::create_directories(dir_, ec);
+    if (ec) {
+        throw std::runtime_error("Failed to create log dir: " + dir_.string() + " (" + ec.message() + ")");
+    }
+}
 
 FileUtil::~FileUtil()
 {
@@ -40,9 +48,19 @@ void FileUtil::append(const char* data, size_t len)
     }
 }
 
+std::string FileUtil::makeFullPath(const std::string& filename) const
+{
+    return (dir_ / filename).string();
+}
+
 inline bool FileUtil::openFile(const std::string& file_name)
 {
-    fd = ::open(file_name.c_str(), O_CREAT | O_APPEND | O_WRONLY | O_CLOEXEC, 0644);
+    std::error_code ec;// to make sure directory exists
+    std::filesystem::create_directories(dir_, ec);
+    if (ec) return false;
+
+    const std::string full = makeFullPath(file_name); 
+    fd = ::open(full.c_str(), O_CREAT | O_APPEND | O_WRONLY | O_CLOEXEC, 0644);
     if (fd < 0) return false;
 	return true;
 }
@@ -67,7 +85,6 @@ inline void FileUtil::roll()
 
 inline bool FileUtil::shouldRoll(size_t bufSize)
 {
-    static const size_t FILE_MAX_SIZE = 256ull * 1024 * 1024; // e.g. 256MB
     return writtenBytes + bufSize > FILE_MAX_SIZE;
 }
 
@@ -76,5 +93,5 @@ inline std::string FileUtil::generateFileName()
     static int order = 0;
     std::string timeStr = LogTime::nowDateString();
     order = (order + 1) % 10000;
-    return timeStr + " LOG " + std::to_string(order);
+    return timeStr + "_LOG_" + std::to_string(order);
 }
