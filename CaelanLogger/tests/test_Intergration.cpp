@@ -174,6 +174,7 @@ TEST(LoggerIntegration, HeavySingleThread_ManyHandoffs_NoLoss_WithinMaxLine) {
     AsyncLogger::getInstance().tls().handoff();
     
 	AsyncLogger::getInstance().shutdown();
+
     auto hits = retry_find(logDir, start_time, token);
     if (hits.empty()) {
         std::cerr << "CWD=" << fs::current_path() << "\n";

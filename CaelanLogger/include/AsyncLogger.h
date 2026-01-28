@@ -23,10 +23,11 @@ public:
         backend_.stop(); 
     }
 
-	//This fucntion will restart the backend logger with a new buffer size, but may cause log loss
+	//This function will restart the backend logger with a new buffer size, but may cause log loss
     void restart(size_t bufSize)
     {
 		init(bufSize);
+        backend_.stop();
         backend_.restart(bufSize);
 		backend_.start();
 	}
