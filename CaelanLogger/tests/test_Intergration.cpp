@@ -144,9 +144,6 @@ TEST(LoggerIntegration, HeavySingleThread_ManyHandoffs_NoLoss_WithinMaxLine) {
     const int kHandoffEvery = 200;
     const std::string token = make_unique_token("TL_HEAVY_1T");
 
-    BackendLogger backend(bufSize);
-    backend.start();
-
     constexpr std::size_t kMaxLine = 1028;
     constexpr std::size_t kLevelPrefix = 5; 
     constexpr std::size_t kNewline = 1;
@@ -198,9 +195,6 @@ TEST(LoggerIntegration, HeavyMultiThread_PerThreadNoLoss_WithinMaxLine) {
     const int kThreads = 6;
     const int kLinesPerThread = 5000;
     const int kHandoffEvery = 300;
-
-    BackendLogger backend(bufSize);
-    backend.start();
 
     constexpr std::size_t kMaxLine = 1028;
     constexpr std::size_t kLevelPrefix = 5; // "INFO "
