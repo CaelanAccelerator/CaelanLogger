@@ -45,7 +45,7 @@ void FileUtil::append(const char* data, size_t len)
         if (n < 0 && errno == EINTR) continue; // retry
         // Other errors: disk full, permission, etc.
         // For now: throw or set an error flag.
-        throw std::runtime_error("write() failed");
+        throw std::runtime_error(std::string("write() failed: ") + std::strerror(errno));
     }
 }
 
