@@ -12,7 +12,7 @@ FileUtil::FileUtil(std::string dir, std::string prefix)
 	std::error_code ec;// to make sure directory exists
     std::filesystem::create_directories(dir_, ec);
     if (ec) {
-        throw std::runtime_error("Failed to create log dir: " + dir_.string() + " (" + ec.message() + ")");
+        throw std::runtime_error("Failed to create log dir: " + dir_.string() + " (" + ec.message() + ")" + std::strerror(errno));
     }
 }
 
@@ -26,7 +26,7 @@ void FileUtil::append(const char* data, size_t len)
     if (fd < 0)
     {
         if (!openFile(generateFileName())) {
-            throw std::runtime_error("Failed to open file");
+            throw std::runtime_error(std::string("write() failed: ") + std::strerror(errno));
         }
     }
     if (shouldRoll(len)) 
