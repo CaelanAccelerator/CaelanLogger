@@ -11,8 +11,8 @@
  "include/AsyncLogger.h"
  "include/TimeUtil.h"
  "source/TimeUtil.cpp"
- "include/Message.h"
- "source/Message.cpp" 
+ 
+  
  "include/Level.h"
  "include/LogStream.h"
  

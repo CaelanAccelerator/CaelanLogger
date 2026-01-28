@@ -1,6 +1,9 @@
 #pragma once
 #include <atomic>
 #include "BackendLogger.h"
+#include "ThreadLogger.h"
+#include "LogStream.h"
+#include "Level.h"
 
 class AsyncLogger {
 public:
@@ -48,3 +51,9 @@ private:
     const size_t bufSize_;                      
     static inline std::atomic<size_t> s_bufSize{ 2028 };
 };
+
+#define LOG(LEVEL)  LogStream(&AsyncLogger::getInstance().tls(), CaelanLogger::LEVEL)
+#define LOG_INFO()  LOG(INFO)
+#define LOG_WARN()  LOG(WARN)
+#define LOG_ERROR() LOG(ERROR)
+#define LOG_DEBUG() LOG(DEBUG)

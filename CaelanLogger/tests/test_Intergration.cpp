@@ -9,11 +9,7 @@
 #include <unordered_map>
 #include <algorithm>
 
-#include "BackendLogger.h"
-#include "ThreadLogger.h"
-#include "LogStream.h"
-#include "Level.h"
-#include <AsyncLogger.h>
+#include "AsyncLogger.h"
 
 namespace fs = std::filesystem;
 
