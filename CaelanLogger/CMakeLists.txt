@@ -8,7 +8,7 @@
  "include/SpinGuard.h"
  "source/FileUtil.cpp"
  "include/FileUtil.h"
- "include/AsyncLogger.h"
+ "AsyncLogger.h"
  "include/TimeUtil.h"
  "source/TimeUtil.cpp"
  
