@@ -1,14 +1,43 @@
-#include "FileUtil.h"
+﻿#include "FileUtil.h"
 #include <fcntl.h>
 #include <unistd.h>
 #include <errno.h>
 #include <stdexcept>
 #include <TimeUtil.h>
 #include <cstring>
+#include <cstdlib>
+#include <filesystem>
+
+static std::filesystem::path pick_log_dir(std::filesystem::path requested) {
+	// 1) if user set CAELAN_LOG_DIR env variable, use it
+    if (const char* env = std::getenv("CAELAN_LOG_DIR"); env && *env) {
+        return std::filesystem::path(env);
+    }
+
+	// if user enter the requested path, use it directly
+    if (!requested.empty() && requested != "./log" && requested != "log") {
+        return requested;
+    }
+
+    // 3) Linux/WSL： ~/.local/state/caelanlogger/logs
+    if (const char* xdg = std::getenv("XDG_STATE_HOME"); xdg && *xdg) {
+        return std::filesystem::path(xdg) / "caelanlogger" / "logs";
+    }
+    if (const char* home = std::getenv("HOME"); home && *home) {
+        return std::filesystem::path(home) / ".local" / "state" / "caelanlogger" / "logs";
+    }
+
+    // 4) fallback
+    return std::filesystem::current_path() / "log";
+}
 
 FileUtil::FileUtil(std::string dir, std::string prefix)   
-    : dir_(std::move(dir)), prefix_(std::move(prefix))    
+    : dir_(pick_log_dir(std::filesystem::path(dir))), 
+      prefix_(std::move(prefix))
 {
+	//use absolute path inorder to avoid confusion
+    dir_ = std::filesystem::absolute(dir_);
+
 	std::error_code ec;// to make sure directory exists
     std::filesystem::create_directories(dir_, ec);
     if (ec) {
@@ -21,6 +50,7 @@ FileUtil::~FileUtil()
 	if (fd >= 0) ::close(fd);
 }
 
+// append data to the file
 void FileUtil::append(const char* data, size_t len)
 {
     if (fd < 0)
@@ -48,6 +78,7 @@ void FileUtil::append(const char* data, size_t len)
         throw std::runtime_error(std::string("write() failed: ") + std::strerror(errno));
     }
 }
+
 
 std::string FileUtil::makeFullPath(const std::string& filename) const
 {

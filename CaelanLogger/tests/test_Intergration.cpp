@@ -8,7 +8,6 @@
 #include <iostream>
 #include <unordered_map>
 #include <algorithm>
-
 #include "AsyncLogger.h"
 
 namespace fs = std::filesystem;
@@ -132,7 +131,8 @@ static std::size_t compute_safe_payload_len(std::size_t maxLine,
 // ----------------------- tests -----------------------
 
 TEST(LoggerIntegration, HeavySingleThread_ManyHandoffs_NoLoss_WithinMaxLine) {
-    const fs::path logDir = fs::path("./log");
+    const char* home = std::getenv("HOME");
+    const fs::path logDir = std::filesystem::path(home) / ".local" / "state" / "caelanlogger" / "logs";
     auto start_time = fs::file_time_type::clock::now() - std::chrono::seconds(3);
 
     const size_t bufSize = 6400;
@@ -185,7 +185,8 @@ TEST(LoggerIntegration, HeavySingleThread_ManyHandoffs_NoLoss_WithinMaxLine) {
 }
 
 TEST(LoggerIntegration, HeavyMultiThread_PerThreadNoLoss_WithinMaxLine) {
-    const fs::path logDir = fs::path("./log");
+    const char* home = std::getenv("HOME");
+    const fs::path logDir = std::filesystem::path(home) / ".local" / "state" / "caelanlogger" / "logs";
     auto start_time = fs::file_time_type::clock::now() - std::chrono::seconds(3);
 
     const size_t bufSize = 2000;
