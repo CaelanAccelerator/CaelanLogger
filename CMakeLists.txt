@@ -22,6 +22,7 @@ enable_testing()
 add_executable(caelogger_tests
   CaelanLogger/tests/test_Intergration.cpp
   CaelanLogger/tests/test_Time.cpp
+  CaelanLogger/tests/Benchmark.cpp
 )
 
 target_link_libraries(caelogger_tests PRIVATE
@@ -31,3 +32,17 @@ target_link_libraries(caelogger_tests PRIVATE
 
 include(GoogleTest)
 gtest_discover_tests(caelogger_tests)
+
+
+# ---- Benchmark (standalone) ----
+add_executable(caelogger_bench
+  CaelanLogger/tests/Benchmark.cpp
+)
+
+target_link_libraries(caelogger_bench PRIVATE
+  caelogger
+)
+
+# Optional: keep it out of `ctest`
+# (It won't be discovered anyway since it isn't a gtest, but this makes intent clear)
+set_property(TARGET caelogger_bench PROPERTY EXCLUDE_FROM_ALL FALSE)

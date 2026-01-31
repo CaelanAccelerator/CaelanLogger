@@ -16,7 +16,7 @@
  "include/Level.h"
  "include/LogStream.h"
  
- "source/LogStream.cpp")
+ "source/LogStream.cpp" "tests/Benchmark.cpp")
 
 target_include_directories(caelogger PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include
