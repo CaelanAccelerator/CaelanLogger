@@ -22,7 +22,6 @@ enable_testing()
 add_executable(caelogger_tests
   CaelanLogger/tests/test_Intergration.cpp
   CaelanLogger/tests/test_Time.cpp
-  CaelanLogger/tests/Benchmark.cpp
 )
 
 target_link_libraries(caelogger_tests PRIVATE
