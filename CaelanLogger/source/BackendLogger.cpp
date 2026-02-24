@@ -3,7 +3,7 @@
 #include "TimeUtil.h"
 #include <iostream>
 
-BackendLogger::BackendLogger(size_t bufSize, std::string dir) : futil(std::make_unique<FileUtil>()) {
+BackendLogger::BackendLogger(size_t bufSize, std::string dir) : futil(std::make_unique<FileUtil>(dir)) {
 	for (size_t i = 0; i < QUEUE_SIZE; i++)
 	{
 		freeQue[i] = new Buffer(bufSize);

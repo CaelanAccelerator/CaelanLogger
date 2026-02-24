@@ -19,14 +19,6 @@ static std::filesystem::path pick_log_dir(std::filesystem::path requested) {
         return requested;
     }
 
-    // 3) Linux/WSL： ~/.local/state/caelanlogger/logs
-    if (const char* xdg = std::getenv("XDG_STATE_HOME"); xdg && *xdg) {
-        return std::filesystem::path(xdg) / "caelanlogger" / "logs";
-    }
-    if (const char* home = std::getenv("HOME"); home && *home) {
-        return std::filesystem::path(home) / ".local" / "state" / "caelanlogger" / "logs";
-    }
-
     // 4) fallback
     return std::filesystem::current_path() / "log";
 }

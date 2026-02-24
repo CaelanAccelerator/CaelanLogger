@@ -7,8 +7,9 @@
 
 class AsyncLogger {
 public:
-    static void init(size_t bufSize) noexcept {
+    static void init(size_t bufSize, std::string logDir = "") noexcept {
         s_bufSize.store(bufSize, std::memory_order_relaxed);
+        s_logDir = std::move(logDir);
     }
 
     static AsyncLogger& getInstance() {
@@ -37,7 +38,7 @@ public:
 
 private:
     explicit AsyncLogger(size_t bufSize)
-        : backend_(bufSize), bufSize_(bufSize) {
+        : backend_(bufSize, s_logDir), bufSize_(bufSize) {
         backend_.start();
     }
 
@@ -47,6 +48,7 @@ private:
     }
 
 private:
+	static inline std::string s_logDir{ "" };
     BackendLogger backend_;
     const size_t bufSize_;                      
     static inline std::atomic<size_t> s_bufSize{ 2028 };
