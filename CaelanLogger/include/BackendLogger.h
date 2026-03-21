@@ -7,7 +7,6 @@
 #include "Buffer.h"
 
 static constexpr int QUEUE_SIZE = 10000;
-static constexpr int URGENT_QUEUE_SIZE = 2000;
 class BackendLogger
 {
 public:
@@ -25,13 +24,12 @@ public:
 private:
 	std::atomic_flag spinlock = ATOMIC_FLAG_INIT;
 	Buffer* pendingQue[QUEUE_SIZE];
-	int pendingQueFront{ 0 };
-	int pendingQueBack{ 0 };
-	int pendingQueSize{ 0 };
+	size_t pendingQueFront{ 0 };
+	size_t pendingQueBack{ 0 };
+	std::atomic<size_t> pendingQueSize{ 0 };
 	Buffer* freeQue[QUEUE_SIZE];
-	int freeQueFront{ 0 };
-	int freeQueBack{ 0 };
-	int freeQueSize{ 0 };
+	size_t freeQueFront{ 0 };
+	size_t freeQueBack{ 0 };
+	size_t freeQueSize{ 0 };
 	std::unique_ptr<FileUtil> futil;
-	size_t buf_size;
 };

@@ -1,5 +1,4 @@
 #pragma once
-#include <ThreadLogger.h>
 #include <string>
 #include <cstring>
 #include <Buffer.h>

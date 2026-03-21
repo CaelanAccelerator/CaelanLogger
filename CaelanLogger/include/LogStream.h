@@ -74,10 +74,5 @@ void LogStream::convertInt(T number) {
     return;
 }
 
-#define LOG(LEVEL)  LogStream(&AsyncLogger::getInstance().tls(), CaelanLogger::LEVEL)
-#define LOG_INFO()  LOG(INFO)
-#define LOG_WARN()  LOG(WARN)
-#define LOG_ERROR() LOG(ERROR)
-#define LOG_DEBUG() LOG(DEBUG)
 
 

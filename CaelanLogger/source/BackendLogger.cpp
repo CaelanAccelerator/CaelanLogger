@@ -8,7 +8,7 @@ BackendLogger::BackendLogger(size_t bufSize, std::string dir) : futil(std::make_
 	{
 		freeQue[i] = new Buffer(bufSize);
 	}
-	freeQueBack = QUEUE_SIZE - 1;
+	freeQueBack = 0;
 	freeQueSize = QUEUE_SIZE;
 	freeAvailable.store(freeQueSize > 0, std::memory_order_release);
 }  
@@ -22,7 +22,6 @@ void BackendLogger::start() {
 	if (!running.compare_exchange_strong(expected, true, std::memory_order_acq_rel)) {
 		return; // already running
 	}
-	running.store(true, std::memory_order_release);
 	writer = std::thread(&BackendLogger::run, this);
 }
 
@@ -33,7 +32,12 @@ void BackendLogger::stop() {
 
 
 void BackendLogger::run() {
-	while (running.load(std::memory_order_acquire)) {		
+	while (running.load(std::memory_order_acquire)) {
+		if (pendingQueSize.load(std::memory_order_relaxed) == 0)
+		{
+			std::this_thread::sleep_for(std::chrono::microseconds(100));
+			continue;
+		}
 		write();
 	}
 
@@ -42,7 +46,7 @@ void BackendLogger::run() {
 		bool empty = false;
 		{
 			SpinGuard g(spinlock);
-			empty = (pendingQueSize == 0);
+			empty = (pendingQueSize.load(std::memory_order_relaxed) == 0);
 		}
 		if (empty) break;
 		write();
@@ -55,14 +59,14 @@ void BackendLogger::submit_and_acquire(Buffer*& fullBuffer)
 		return;
 	}
 	SpinGuard guard(spinlock);
-	if (pendingQueSize >= QUEUE_SIZE) {
+	if (pendingQueSize.load(std::memory_order_relaxed) >= QUEUE_SIZE) {
 		fullBuffer->reset();
 		return;
 	}
 	pendingQue[pendingQueBack] = fullBuffer;
-	pendingQueBack = (pendingQueBack + 1) % QUEUE_SIZE; 
-	++pendingQueSize; 
-	
+	pendingQueBack = (pendingQueBack + 1) % QUEUE_SIZE;
+	pendingQueSize.fetch_add(1, std::memory_order_relaxed);
+
 	if (freeQueSize < 1)
 	{
 		fullBuffer = nullptr; 
@@ -80,15 +84,15 @@ void BackendLogger::write()
 	Buffer* buffer[QUEUE_SIZE];
 	{
 		SpinGuard guard(spinlock);
-		if (pendingQueSize == 0)
+		if (pendingQueSize.load(std::memory_order_relaxed) == 0)
 		{
 			return;
 		}
-		while (pendingQueSize)
+		while (pendingQueSize.load(std::memory_order_relaxed))
 		{
 			buffer[numBuf++] = pendingQue[pendingQueFront];
 			pendingQueFront = (pendingQueFront + 1) % QUEUE_SIZE;
-			--pendingQueSize;
+			pendingQueSize.fetch_sub(1, std::memory_order_relaxed);
 		}
 	}
 	for (size_t i = 0; i < numBuf; i++)
@@ -112,13 +116,12 @@ void BackendLogger::write()
 
 void BackendLogger::restart(size_t bufSize)
 {
-	futil->~FileUtil();
-	new (futil.get()) FileUtil();
+	futil = std::make_unique<FileUtil>();
 	for (size_t i = 0; i < QUEUE_SIZE; i++)
 	{
-		freeQue[i] = new Buffer(bufSize);
+		freeQue[i]->reset();
 	}
-	freeQueBack = QUEUE_SIZE - 1;
+	freeQueBack = 0;
 	freeQueSize = QUEUE_SIZE;
 	freeAvailable.store(freeQueSize > 0, std::memory_order_release);
 }

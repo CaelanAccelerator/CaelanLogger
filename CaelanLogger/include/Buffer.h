@@ -3,15 +3,17 @@
 using std::size_t;
 
 //property of a buffer
-constexpr int maxSize{ 2000 };
+constexpr size_t maxSize{ 2000 };
 
 class Buffer
 {
 public:
 	Buffer();
-	Buffer(int);
+	Buffer(size_t);
+	Buffer(const Buffer&) = delete;//to prevent double free after copy construction
+	Buffer& operator=(const Buffer&) = delete;//to prevent double free after copy construction
 	~Buffer();
-	bool add(const char*, int);
+	bool add(const char*, size_t);
 	bool add(const char);
 	size_t getSize() { return size; }
 	size_t getCapacity() { return capacity; }
@@ -21,8 +23,8 @@ public:
 	friend class LogStream;
 private:
 	char* buffer;
-	int size;
-	int capacity;
-	int remaining;
+	size_t size;
+	size_t capacity;
+	size_t remaining;
 };
 

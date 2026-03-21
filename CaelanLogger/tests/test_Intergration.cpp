@@ -132,7 +132,7 @@ static std::size_t compute_safe_payload_len(std::size_t maxLine,
 
 TEST(LoggerIntegration, HeavySingleThread_ManyHandoffs_NoLoss_WithinMaxLine) {
     const char* home = std::getenv("HOME");
-    const fs::path logDir = std::filesystem::path(home) / ".local" / "state" / "caelanlogger" / "logs";
+    const fs::path logDir = fs::current_path() / "log";
     auto start_time = fs::file_time_type::clock::now() - std::chrono::seconds(3);
 
     const size_t bufSize = 6400;
@@ -186,7 +186,7 @@ TEST(LoggerIntegration, HeavySingleThread_ManyHandoffs_NoLoss_WithinMaxLine) {
 
 TEST(LoggerIntegration, HeavyMultiThread_PerThreadNoLoss_WithinMaxLine) {
     const char* home = std::getenv("HOME");
-    const fs::path logDir = std::filesystem::path(home) / ".local" / "state" / "caelanlogger" / "logs";
+    const fs::path logDir = fs::current_path() / "log";
     auto start_time = fs::file_time_type::clock::now() - std::chrono::seconds(3);
 
     const size_t bufSize = 2000;

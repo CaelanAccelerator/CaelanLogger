@@ -29,7 +29,7 @@ LogStream& LogStream::operator<<(bool express) {
     if (!cur_buffer) return *this;
 
     const char* s = express ? "true" : "false";
-    const int len = express ? 4 : 5;
+    const size_t len = express ? 4 : 5;
 
     cur_buffer->add(s, len);
     return *this;
@@ -103,7 +103,7 @@ LogStream& LogStream::operator<<(const char str) {
 LogStream& LogStream::operator<<(const char* str) {
     if (!cur_buffer) return *this;
 
-    int len = (int)std::strlen(str);
+    size_t len = std::strlen(str);
     cur_buffer->add(str, len);
     return *this;
 }
@@ -112,7 +112,7 @@ LogStream& LogStream::operator<<(const unsigned char* str) {
     const char* s = reinterpret_cast<const char*>(str);
     if (!cur_buffer) return *this;
 
-    int len = std::strlen(s);
+    size_t len = std::strlen(s);
     cur_buffer->add(s, len);
     return *this;
 }
@@ -120,7 +120,7 @@ LogStream& LogStream::operator<<(const unsigned char* str) {
 LogStream& LogStream::operator<<(const std::string& str) {
     if (!cur_buffer) return *this;
 
-    int len = str.length();
+    size_t len = str.length();
     cur_buffer->add(str.c_str(), len);
     return *this;
 }

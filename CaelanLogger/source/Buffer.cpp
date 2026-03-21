@@ -3,14 +3,14 @@
 Buffer::Buffer() :capacity(2000), size(0), remaining(capacity) {
 	buffer = new char[capacity];
 }
-Buffer::Buffer(int capacity) : capacity(capacity), size(0), remaining(capacity) {
+Buffer::Buffer(size_t capacity) : capacity(capacity), size(0), remaining(capacity) {
 	buffer = new char[capacity];
 }
 Buffer::~Buffer() {
 	delete[] buffer;
 	buffer = nullptr;
 }
-bool Buffer::add(const char* src, int len) {
+bool Buffer::add(const char* src, size_t len) {
 	if (len + size > capacity) return false;
 	std::memcpy(&buffer[size], src, len);
 	size += len;
