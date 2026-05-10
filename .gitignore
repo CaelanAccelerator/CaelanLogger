@@ -363,3 +363,5 @@ MigrationBackup/
 FodyWeavers.xsdbuild/
 build_asan/
 build/
+out/
+bench/
