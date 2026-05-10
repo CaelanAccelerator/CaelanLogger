@@ -39,6 +39,13 @@ include(GoogleTest)
 gtest_discover_tests(caelogger_tests)
 
 
+# ---- spdlog ----
+FetchContent_Declare(
+  spdlog
+  URL https://github.com/gabime/spdlog/archive/refs/tags/v1.14.1.tar.gz
+)
+FetchContent_MakeAvailable(spdlog)
+
 # ---- Benchmark (standalone) ----
 add_executable(caelogger_bench
   CaelanLogger/tests/Benchmark.cpp
@@ -46,6 +53,7 @@ add_executable(caelogger_bench
 
 target_link_libraries(caelogger_bench PRIVATE
   caelogger
+  spdlog::spdlog
 )
 
 # Optional: keep it out of `ctest`

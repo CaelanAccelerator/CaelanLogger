@@ -1,29 +1,46 @@
 Starting logger benchmark...
 threads=8 lines/thread=50000 payload=128 workRounds=512
 
+Memory budget:
+  CaelanLogger: 4096 KB  (32 x 128 KB buffers)
+  spdlog queue: ~3200 KB  (8192 msgs x ~400 B)
+Note: spdlog formats on producer thread; CaelanLogger defers to writer thread.
+
 [SyncLogger (mutex + write)]
-  producer time: 998.09 ms
-  end-to-end time: 998.09 ms
+  producer time: 956.08 ms
+  end-to-end time: 956.08 ms
   attempted: 400000
   logged: 400000
   dropped: 0 / 400000 (0.0%)
-  producer lines/sec: 400767
-  end-to-end lines/sec: 400767
+  producer lines/sec: 418376
+  end-to-end lines/sec: 418376
   checksum: 0x9c203f5b85d1ed12
 
-[AsyncLogger (your logger)]
-  producer time: 72.12 ms
-  end-to-end time: 72.51 ms
+[AsyncLogger (CaelanLogger)]
+  producer time: 74.20 ms
+  end-to-end time: 74.41 ms
   attempted: 400000
-  logged: 393708
-  dropped: 6292 / 400000 (1.6%)
-  producer lines/sec: 5546510
-  end-to-end lines/sec: 5516554
+  logged: 400000
+  dropped: 0 / 400000 (0.0%)
+  producer lines/sec: 5391072
+  end-to-end lines/sec: 5375441
+  checksum: 0x9c203f5b85d1ed12
+
+
+[spdlog async (1 thread, overrun_oldest)]
+  producer time: 266.67 ms
+  end-to-end time: 267.61 ms
+  attempted: 400000
+  logged: 98330
+  dropped: 301670 / 400000 (75.4%)
+  producer lines/sec: 1499975
+  end-to-end lines/sec: 1494697
   checksum: 0x9c203f5b85d1ed12
 
 Validation:
-  sync logged + dropped = 400000 / 400000
-  async logged + dropped = 400000 / 400000
+  sync  logged+dropped = 400000 / 400000
+  async logged+dropped = 400000 / 400000
+  spd   logged+dropped = 400000 / 400000
 
 Log dirs:
   sync:  "/tmp/caelan_bench_sync"

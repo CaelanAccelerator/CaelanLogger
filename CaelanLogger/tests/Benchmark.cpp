@@ -17,6 +17,10 @@
 
 #include "AsyncLogger.h"
 
+#include <spdlog/async.h>
+#include <spdlog/sinks/basic_file_sink.h>
+#include <spdlog/spdlog.h>
+
 namespace fs = std::filesystem;
 
 struct BenchConfig
@@ -286,6 +290,68 @@ static BenchResult run_async(const BenchConfig &cfg, const fs::path &dir, const 
     return r;
 }
 
+static BenchResult run_spdlog_async(const BenchConfig &cfg, const fs::path &dir,
+                                     const std::string &token, std::size_t queueSize)
+{
+    reset_dir(dir);
+
+    spdlog::init_thread_pool(queueSize, 1);
+    auto sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>((dir / "spdlog.log").string());
+    auto logger = std::make_shared<spdlog::async_logger>(
+        "bench", sink, spdlog::thread_pool(),
+        spdlog::async_overflow_policy::overrun_oldest);
+    logger->set_pattern("%v");
+    logger->set_level(spdlog::level::info);
+
+    const std::size_t attempted =
+        static_cast<std::size_t>(cfg.threads) * static_cast<std::size_t>(cfg.linesPerThread);
+
+    std::vector<std::thread> threads;
+    std::vector<std::uint64_t> checksums(cfg.threads, 0);
+
+    auto start = std::chrono::steady_clock::now();
+
+    for (int t = 0; t < cfg.threads; ++t)
+    {
+        threads.emplace_back([&, t]
+                             {
+            std::uint64_t local = 0;
+            for (int i = 0; i < cfg.linesPerThread; ++i)
+            {
+                local ^= do_work(cfg.workRounds,
+                    static_cast<std::uint64_t>(t) << 32 | static_cast<std::uint64_t>(i));
+                logger->info("{} T={} I={} {}", token, t, i, cfg.payload);
+            }
+            checksums[t] = local; });
+    }
+
+    for (auto &th : threads)
+        th.join();
+
+    auto producersDone = std::chrono::steady_clock::now();
+
+    logger->flush();
+    spdlog::drop("bench");
+    spdlog::shutdown();
+
+    auto end = std::chrono::steady_clock::now();
+
+    std::uint64_t checksum = 0;
+    for (auto x : checksums)
+        checksum ^= x;
+
+    const std::string logs = read_all_files(dir);
+
+    BenchResult r;
+    r.producerMs = std::chrono::duration<double, std::milli>(producersDone - start).count();
+    r.endToEndMs = std::chrono::duration<double, std::milli>(end - start).count();
+    r.attempted = attempted;
+    r.logged = count_occurrences(logs, token);
+    r.dropped = attempted - r.logged;
+    r.checksum = checksum;
+    return r;
+}
+
 static void print_result(const std::string &name, const BenchResult &r)
 {
     const double producerLinesPerSec = r.attempted / (r.producerMs / 1000.0);
@@ -321,17 +387,39 @@ int main()
               << " workRounds=" << cfg.workRounds
               << "\n";
 
-    const BenchResult sync = run_sync(cfg, syncDir, syncToken);
-    const BenchResult async = run_async(cfg, asyncDir, asyncToken);
+    const fs::path spdlogDir = "/tmp/caelan_bench_spdlog";
+    const std::string spdlogToken = "<<SPDLOG_BENCH_TOKEN>>";
+
+    // Match spdlog queue memory to CaelanLogger's total buffer pool.
+    // CaelanLogger: QUEUE_SIZE=32 buffers x asyncBufferSize bytes = total pool.
+    // spdlog async_msg: fmt::memory_buffer (250B inline) + struct fields ≈ 400B/msg.
+    const std::size_t caelMemBytes = 32 * cfg.asyncBufferSize;
+    constexpr std::size_t spdlogMsgBytes = 400;
+    // Round down to nearest power of 2 (required by spdlog ring buffer)
+    std::size_t spdlogQueue = caelMemBytes / spdlogMsgBytes;
+    spdlogQueue = spdlogQueue > 0 ? (std::size_t{1} << static_cast<std::size_t>(std::log2(spdlogQueue))) : 1;
+
+    std::cout << "\nMemory budget:\n";
+    std::cout << "  CaelanLogger: " << (caelMemBytes / 1024) << " KB  (32 x " << (cfg.asyncBufferSize / 1024) << " KB buffers)\n";
+    std::cout << "  spdlog queue: ~" << (spdlogQueue * spdlogMsgBytes / 1024) << " KB  (" << spdlogQueue << " msgs x ~" << spdlogMsgBytes << " B)\n";
+    std::cout << "Note: spdlog formats on producer thread; CaelanLogger defers to writer thread.\n";
+
+    const BenchResult sync   = run_sync(cfg, syncDir, syncToken);
+    const BenchResult async  = run_async(cfg, asyncDir, asyncToken);
+    const BenchResult spd    = run_spdlog_async(cfg, spdlogDir, spdlogToken, spdlogQueue);
 
     print_result("SyncLogger (mutex + write)", sync);
-    print_result("AsyncLogger (your logger)", async);
+    print_result("AsyncLogger (CaelanLogger)", async);
+    std::cout << "\n";
+    print_result("spdlog async (1 thread, overrun_oldest)", spd);
 
     std::cout << "\nValidation:\n";
-    std::cout << "  sync logged + dropped = " << (sync.logged + sync.dropped)
+    std::cout << "  sync  logged+dropped = " << (sync.logged + sync.dropped)
               << " / " << sync.attempted << "\n";
-    std::cout << "  async logged + dropped = " << (async.logged + async.dropped)
+    std::cout << "  async logged+dropped = " << (async.logged + async.dropped)
               << " / " << async.attempted << "\n";
+    std::cout << "  spd   logged+dropped = " << (spd.logged + spd.dropped)
+              << " / " << spd.attempted << "\n";
 
     std::cout << "\nLog dirs:\n";
     std::cout << "  sync:  " << syncDir << "\n";

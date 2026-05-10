@@ -74,23 +74,30 @@ def parse_section(output: str, section_name: str) -> dict:
 def parse_validation(output: str) -> dict:
     out = {}
 
-    m = re.search(r"sync logged \+ dropped =\s*([0-9]+)\s*/\s*([0-9]+)", output)
+    # format: "sync  logged+dropped = X / Y" (extra spaces tolerated)
+    m = re.search(r"sync\s+logged\+dropped\s*=\s*([0-9]+)\s*/\s*([0-9]+)", output)
     if m:
         out["sync_valid_sum"] = int(m.group(1))
         out["sync_valid_expected"] = int(m.group(2))
 
-    m = re.search(r"async logged \+ dropped =\s*([0-9]+)\s*/\s*([0-9]+)", output)
+    m = re.search(r"async\s+logged\+dropped\s*=\s*([0-9]+)\s*/\s*([0-9]+)", output)
     if m:
         out["async_valid_sum"] = int(m.group(1))
         out["async_valid_expected"] = int(m.group(2))
+
+    m = re.search(r"spd\s+logged\+dropped\s*=\s*([0-9]+)\s*/\s*([0-9]+)", output)
+    if m:
+        out["spd_valid_sum"] = int(m.group(1))
+        out["spd_valid_expected"] = int(m.group(2))
 
     return out
 
 
 def flatten_result(run_id: int, returncode: int, output: str) -> dict:
-    sync = parse_section(output, "SyncLogger (mutex + write)")
-    async_ = parse_section(output, "AsyncLogger (your logger)")
-    valid = parse_validation(output)
+    sync   = parse_section(output, "SyncLogger (mutex + write)")
+    async_ = parse_section(output, "AsyncLogger (CaelanLogger)")
+    spd    = parse_section(output, "spdlog async (1 thread, overrun_oldest)")
+    valid  = parse_validation(output)
 
     row = {
         "run": run_id,
@@ -102,6 +109,9 @@ def flatten_result(run_id: int, returncode: int, output: str) -> dict:
 
     for k, v in async_.items():
         row[f"async_{k}"] = v
+
+    for k, v in spd.items():
+        row[f"spd_{k}"] = v
 
     row.update(valid)
 
@@ -195,17 +205,14 @@ def main():
         row = flatten_result(i, p.returncode, p.stdout)
         rows.append(row)
 
-        async_dropped = row.get("async_dropped")
-        async_logged = row.get("async_logged")
-        async_attempted = row.get("async_attempted")
-        async_e2e = row.get("async_end_to_end_time_ms")
-
         print(
             f"  rc={p.returncode} "
-            f"async_logged={async_logged} "
-            f"async_dropped={async_dropped} "
-            f"attempted={async_attempted} "
-            f"async_e2e_ms={async_e2e}"
+            f"async: logged={row.get('async_logged')} "
+            f"dropped={row.get('async_dropped')} "
+            f"e2e={row.get('async_end_to_end_time_ms')}ms | "
+            f"spd: logged={row.get('spd_logged')} "
+            f"dropped={row.get('spd_dropped')} "
+            f"e2e={row.get('spd_end_to_end_time_ms')}ms"
         )
 
     # Stable column order.
@@ -239,6 +246,20 @@ def main():
         "sync_valid_expected",
         "async_valid_sum",
         "async_valid_expected",
+
+        "spd_producer_time_ms",
+        "spd_end_to_end_time_ms",
+        "spd_attempted",
+        "spd_logged",
+        "spd_dropped",
+        "spd_dropped_denominator",
+        "spd_dropped_pct",
+        "spd_producer_lines_sec",
+        "spd_end_to_end_lines_sec",
+        "spd_checksum",
+
+        "spd_valid_sum",
+        "spd_valid_expected",
     ]
 
     # Include any extra parsed fields safely.
