@@ -28,4 +28,5 @@ bool Buffer::add(const char src) {
 void Buffer::reset() {
 	size = 0;
 	remaining = capacity;
+	line_count = 0;
 }

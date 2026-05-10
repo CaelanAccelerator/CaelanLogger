@@ -1,20 +1,32 @@
 #include "LogStream.h"
+#include "BackendLogger.h"
 #include <algorithm>
-#include <cstring> 
+#include <cstring>
 #include "Level.h"
 
-LogStream::LogStream(ThreadLogger* target, CaelanLogger::Level level) : target(target)
+LogStream::LogStream(ThreadLogger *target, CaelanLogger::Level level) : target_(target)
 {
-    cur_buffer = target ? target->cur_buffer : nullptr;
-    if (!cur_buffer) return;
+    curBuffer_ = target_ ? target_->curBuffer_ : nullptr;
 
-    if (cur_buffer->getRemaining() < kMaxLineLength)
+    if (!curBuffer_)
     {
-        target->handoff();
-		// after handoff, the target's cur_buffer will change
-		// if we get nullptr, we just leave cur_buffer as nullptr and drop further writes
-        cur_buffer = target ? target->cur_buffer : nullptr;
-        if (!cur_buffer) return;
+        target_->handoff();
+        curBuffer_ = target_ ? target_->curBuffer_ : nullptr;
+    }
+    if (!curBuffer_)
+        return;
+
+    if (curBuffer_->getRemaining() < kMaxLineLength)
+    {
+        target_->handoff();
+        curBuffer_ = target_ ? target_->curBuffer_ : nullptr;
+        if (!curBuffer_ || curBuffer_->getRemaining() < kMaxLineLength) // to
+        {
+            target_->backendLogger_->record_drop();
+            curBuffer_ = nullptr;
+            target_ = nullptr; // prevent destructor from double-counting
+            return;
+        }
     }
     addLevel(level);
     addTime();
@@ -22,139 +34,174 @@ LogStream::LogStream(ThreadLogger* target, CaelanLogger::Level level) : target(t
 
 LogStream::~LogStream()
 {
-    if (cur_buffer) cur_buffer->add('\n');
+    if (curBuffer_)
+    {
+        curBuffer_->add('\n');
+        curBuffer_->line_count++;
+    }
+    else if (target_)
+        target_->backendLogger_->record_drop();
 }
 
-LogStream& LogStream::operator<<(bool express) {
-    if (!cur_buffer) return *this;
+LogStream &LogStream::operator<<(bool express)
+{
+    if (!curBuffer_)
+        return *this;
 
-    const char* s = express ? "true" : "false";
+    const char *s = express ? "true" : "false";
     const size_t len = express ? 4 : 5;
 
-    cur_buffer->add(s, len);
+    curBuffer_->add(s, len);
     return *this;
 }
 
-LogStream& LogStream::operator<<(int number) {
-    if (!cur_buffer) return *this;
+LogStream &LogStream::operator<<(int number)
+{
+    if (!curBuffer_)
+        return *this;
 
     convertInt(number);
     return *this;
 }
 
-LogStream& LogStream::operator<<(unsigned int number) {
-    if (!cur_buffer) return *this;
+LogStream &LogStream::operator<<(unsigned int number)
+{
+    if (!curBuffer_)
+        return *this;
 
     convertInt(number);
     return *this;
 }
 
-LogStream& LogStream::operator<<(long number) {
-    if (!cur_buffer) return *this;
+LogStream &LogStream::operator<<(long number)
+{
+    if (!curBuffer_)
+        return *this;
 
     convertInt(number);
     return *this;
 }
 
-LogStream& LogStream::operator<<(unsigned long number) {
-    if (!cur_buffer) return *this;
+LogStream &LogStream::operator<<(unsigned long number)
+{
+    if (!curBuffer_)
+        return *this;
 
     convertInt(number);
     return *this;
 }
 
-LogStream& LogStream::operator<<(long long number) {
-    if (!cur_buffer) return *this;
+LogStream &LogStream::operator<<(long long number)
+{
+    if (!curBuffer_)
+        return *this;
 
     convertInt(number);
     return *this;
 }
 
-LogStream& LogStream::operator<<(unsigned long long number) {
-    if (!cur_buffer) return *this;
+LogStream &LogStream::operator<<(unsigned long long number)
+{
+    if (!curBuffer_)
+        return *this;
 
     convertInt(number);
     return *this;
 }
 
-LogStream& LogStream::operator<<(float number) {
+LogStream &LogStream::operator<<(float number)
+{
     *this << static_cast<double>(number);
     return *this;
 }
 
-LogStream& LogStream::operator<<(double number) {
-    if (!cur_buffer) return *this;
+LogStream &LogStream::operator<<(double number)
+{
+    if (!curBuffer_)
+        return *this;
 
     char temp[32];
     int len = std::snprintf(temp, sizeof(temp), "%.12g", number);
-    if (len <= 0) return *this;
+    if (len <= 0)
+        return *this;
 
-    cur_buffer->add(temp, len);
+    curBuffer_->add(temp, len);
     return *this;
 }
 
-LogStream& LogStream::operator<<(const char str) {
-    if (!cur_buffer) return *this;
+LogStream &LogStream::operator<<(const char str)
+{
+    if (!curBuffer_)
+        return *this;
 
-    cur_buffer->add(str);
+    curBuffer_->add(str);
     return *this;
 }
 
-LogStream& LogStream::operator<<(const char* str) {
-    if (!cur_buffer) return *this;
+LogStream &LogStream::operator<<(const char *str)
+{
+    if (!curBuffer_)
+        return *this;
 
     size_t len = std::strlen(str);
-    cur_buffer->add(str, len);
+    curBuffer_->add(str, len);
     return *this;
 }
 
-LogStream& LogStream::operator<<(const unsigned char* str) {
-    const char* s = reinterpret_cast<const char*>(str);
-    if (!cur_buffer) return *this;
+LogStream &LogStream::operator<<(const unsigned char *str)
+{
+    const char *s = reinterpret_cast<const char *>(str);
+    if (!curBuffer_)
+        return *this;
 
     size_t len = std::strlen(s);
-    cur_buffer->add(s, len);
+    curBuffer_->add(s, len);
     return *this;
 }
 
-LogStream& LogStream::operator<<(const std::string& str) {
-    if (!cur_buffer) return *this;
+LogStream &LogStream::operator<<(const std::string &str)
+{
+    if (!curBuffer_)
+        return *this;
 
     size_t len = str.length();
-    cur_buffer->add(str.c_str(), len);
+    curBuffer_->add(str.c_str(), len);
     return *this;
 }
 
-void LogStream::addLevel(CaelanLogger::Level level) {
-    if (!cur_buffer) return;
-    
-    switch (level)  
+void LogStream::addLevel(CaelanLogger::Level level)
+{
+    if (!curBuffer_)
+        return;
+
+    switch (level)
     {
     case CaelanLogger::Level::INFO:
-        cur_buffer->add("INFO ", 5); 
+        curBuffer_->add("INFO ", 5);
         break;
     case CaelanLogger::Level::DEBUG:
-		cur_buffer->add("DEBUG ", 6);
+        curBuffer_->add("DEBUG ", 6);
         break;
     case CaelanLogger::Level::WARNING:
-        cur_buffer->add("WARNING ", 8);
+        curBuffer_->add("WARNING ", 8);
         break;
     case CaelanLogger::Level::ERROR:
-        cur_buffer->add("ERROR ", 7);
+        curBuffer_->add("ERROR ", 7);
         break;
     case CaelanLogger::Level::FATAL:
-        cur_buffer->add("FATAL ", 6);
+        curBuffer_->add("FATAL ", 6);
         break;
     default:
-		cur_buffer->add("INFO ", 5);
+        curBuffer_->add("INFO ", 5);
         break;
     }
 }
 
 void LogStream::addTime()
 {
-    if (!cur_buffer) return;
+    if (!curBuffer_)
+        return;
     std::string logTime = LogTime::nowString();
-    cur_buffer->add(logTime.c_str(), logTime.length());
-    cur_buffer->add(" ", 1);
+    curBuffer_->add(logTime.c_str(), logTime.length());
+    curBuffer_->add(" ", 1);
 }

@@ -31,8 +31,8 @@ public:
 	friend class ThreadLogger;
 private:
 	static const size_t kMaxLineLength = 1028;
-    ThreadLogger* target;
-    Buffer* cur_buffer;
+    ThreadLogger* target_;
+    Buffer* curBuffer_;
 
     void addLevel(CaelanLogger::Level);
 	void addTime();
@@ -43,21 +43,21 @@ private:
 
 template<typename T>
 void LogStream::convertInt(T number) {
-    if (cur_buffer->getRemaining() < 32)
+    if (curBuffer_->getRemaining() < 32)
     {
         return;
     }
 
     if (!number) {
-        cur_buffer->buffer[cur_buffer->size++] = '0';
+        curBuffer_->buffer[curBuffer_->size++] = '0';
         return;
     }
-    char* ptr = cur_buffer->buffer + cur_buffer->size;
+    char* ptr = curBuffer_->buffer + curBuffer_->size;
 
     if (number < 0)
     {
         *ptr++ = '-';
-        cur_buffer->size += 1;
+        curBuffer_->size += 1;
     }
     size_t i = 0;
     static const char digits[] = "9876543210123456789";
@@ -69,8 +69,8 @@ void LogStream::convertInt(T number) {
         number /= 10;
     }
     std::reverse(ptr, ptr + i);
-    cur_buffer->size += i;
-    cur_buffer->remaining = cur_buffer->capacity - cur_buffer->size;
+    curBuffer_->size += i;
+    curBuffer_->remaining = curBuffer_->capacity - curBuffer_->size;
     return;
 }
 

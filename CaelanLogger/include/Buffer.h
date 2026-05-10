@@ -19,6 +19,7 @@ public:
 	size_t getCapacity() { return capacity; }
 	char* getBuffer() { return buffer; }	
 	size_t getRemaining() { return remaining; }
+	size_t getLineCount() { return line_count; }
 	void reset();
 	friend class LogStream;
 private:
@@ -26,5 +27,6 @@ private:
 	size_t size;
 	size_t capacity;
 	size_t remaining;
+	size_t line_count{0};
 };
 

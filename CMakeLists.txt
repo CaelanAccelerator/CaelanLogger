@@ -31,12 +31,9 @@ add_executable(caelogger_tests
 )
 
 target_link_libraries(caelogger_tests PRIVATE
-  caelogger
+  caelogger_testing
   GTest::gtest_main
 )
-
-target_compile_definitions(caelogger_tests PRIVATE CAELOGGER_TESTING)
-target_compile_definitions(caelogger PRIVATE CAELOGGER_TESTING)
 
 include(GoogleTest)
 gtest_discover_tests(caelogger_tests)

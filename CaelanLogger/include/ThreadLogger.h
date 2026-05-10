@@ -11,10 +11,11 @@ class ThreadLogger
 public:
 	ThreadLogger(size_t, BackendLogger *);
 	~ThreadLogger();
-	void handoff();
-	friend class LogStream;
+	void handoff(bool force = false);
 
 private:
-	Buffer *cur_buffer;
-	BackendLogger *backend_logger;
+	unsigned long long lostLogs{0};
+	Buffer *curBuffer_;
+	BackendLogger *backendLogger_;
+	friend class LogStream;
 };

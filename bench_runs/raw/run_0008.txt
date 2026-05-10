@@ -1,0 +1,30 @@
+Starting logger benchmark...
+threads=8 lines/thread=50000 payload=128 workRounds=512
+
+[SyncLogger (mutex + write)]
+  producer time: 1026.65 ms
+  end-to-end time: 1026.65 ms
+  attempted: 400000
+  logged: 400000
+  dropped: 0 / 400000 (0.0%)
+  producer lines/sec: 389617
+  end-to-end lines/sec: 389617
+  checksum: 0x9c203f5b85d1ed12
+
+[AsyncLogger (your logger)]
+  producer time: 73.63 ms
+  end-to-end time: 73.84 ms
+  attempted: 400000
+  logged: 393163
+  dropped: 6837 / 400000 (1.7%)
+  producer lines/sec: 5432588
+  end-to-end lines/sec: 5416978
+  checksum: 0x9c203f5b85d1ed12
+
+Validation:
+  sync logged + dropped = 400000 / 400000
+  async logged + dropped = 400000 / 400000
+
+Log dirs:
+  sync:  "/tmp/caelan_bench_sync"
+  async: "/tmp/caelan_bench_async"

@@ -4,32 +4,32 @@
 #include <cstdio>
 
 ThreadLogger::ThreadLogger(size_t sizeBuf, BackendLogger *bl)
-    : backend_logger(bl), cur_buffer(new Buffer(sizeBuf))
+    : backendLogger_(bl), curBuffer_(bl->get_free_buffer())
 {
 }
 
 ThreadLogger::~ThreadLogger()
 {
-    if (cur_buffer)
+    if (curBuffer_ && backendLogger_)
     {
-        handoff();
-        delete cur_buffer;
-        cur_buffer = nullptr;
-        backend_logger = nullptr;
+        backendLogger_->submitAndAcquire(curBuffer_);
+        delete curBuffer_;
+        curBuffer_ = nullptr;
+        backendLogger_ = nullptr;
     }
 }
 
-void ThreadLogger::handoff()
+void ThreadLogger::handoff(bool force)
 {
-    if (!backend_logger)
+    if (!backendLogger_)
         return;
-    if (!backend_logger->freeAvailable.load(std::memory_order_acquire))
+    if (!backendLogger_->freeAvailable_.load(std::memory_order_acquire) && !force)
         return;
-    if (!cur_buffer)
+    if (!curBuffer_)
     {
-        cur_buffer = backend_logger->get_free_buffer();
+        curBuffer_ = backendLogger_->get_free_buffer();
         return;
     }
 
-    backend_logger->submit_and_acquire(cur_buffer);
+    backendLogger_->submitAndAcquire(curBuffer_);
 }

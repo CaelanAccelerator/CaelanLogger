@@ -1,13 +1,13 @@
 #pragma once
-#include<atomic>
+#include <atomic>
 #include <thread>
 
 struct SpinGuard
 {
-	std::atomic_flag& spinlock;
-	explicit SpinGuard(std::atomic_flag& lock) : spinlock(lock)
+	std::atomic_flag &spinlock_;
+	explicit SpinGuard(std::atomic_flag &lock) : spinlock_(lock)
 	{
-		while (spinlock.test_and_set(std::memory_order_acquire))
+		while (spinlock_.test_and_set(std::memory_order_acquire))
 		{
 			std::this_thread::yield();
 		}
@@ -15,6 +15,6 @@ struct SpinGuard
 
 	~SpinGuard()
 	{
-		spinlock.clear(std::memory_order_release);
+		spinlock_.clear(std::memory_order_release);
 	}
 };
