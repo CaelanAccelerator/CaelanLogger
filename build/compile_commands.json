@@ -1,0 +1,67 @@
+[
+{
+  "directory": "/mnt/c/Users/zhouj/source/repos/CaelanLogger/build",
+  "command": "/usr/bin/c++  -I/mnt/c/Users/zhouj/source/repos/CaelanLogger/CaelanLogger/include -isystem /mnt/c/Users/zhouj/source/repos/CaelanLogger/build/_deps/googletest-src/googletest/include -isystem /mnt/c/Users/zhouj/source/repos/CaelanLogger/build/_deps/googletest-src/googletest -std=gnu++17 -o CMakeFiles/caelogger_tests.dir/CaelanLogger/tests/test_Intergration.cpp.o -c /mnt/c/Users/zhouj/source/repos/CaelanLogger/CaelanLogger/tests/test_Intergration.cpp",
+  "file": "/mnt/c/Users/zhouj/source/repos/CaelanLogger/CaelanLogger/tests/test_Intergration.cpp"
+},
+{
+  "directory": "/mnt/c/Users/zhouj/source/repos/CaelanLogger/build",
+  "command": "/usr/bin/c++  -I/mnt/c/Users/zhouj/source/repos/CaelanLogger/CaelanLogger/include -isystem /mnt/c/Users/zhouj/source/repos/CaelanLogger/build/_deps/googletest-src/googletest/include -isystem /mnt/c/Users/zhouj/source/repos/CaelanLogger/build/_deps/googletest-src/googletest -std=gnu++17 -o CMakeFiles/caelogger_tests.dir/CaelanLogger/tests/test_Time.cpp.o -c /mnt/c/Users/zhouj/source/repos/CaelanLogger/CaelanLogger/tests/test_Time.cpp",
+  "file": "/mnt/c/Users/zhouj/source/repos/CaelanLogger/CaelanLogger/tests/test_Time.cpp"
+},
+{
+  "directory": "/mnt/c/Users/zhouj/source/repos/CaelanLogger/build",
+  "command": "/usr/bin/c++  -I/mnt/c/Users/zhouj/source/repos/CaelanLogger/CaelanLogger/include -std=gnu++17 -o CMakeFiles/caelogger_bench.dir/CaelanLogger/tests/Benchmark.cpp.o -c /mnt/c/Users/zhouj/source/repos/CaelanLogger/CaelanLogger/tests/Benchmark.cpp",
+  "file": "/mnt/c/Users/zhouj/source/repos/CaelanLogger/CaelanLogger/tests/Benchmark.cpp"
+},
+{
+  "directory": "/mnt/c/Users/zhouj/source/repos/CaelanLogger/build/CaelanLogger",
+  "command": "/usr/bin/c++  -I/mnt/c/Users/zhouj/source/repos/CaelanLogger/CaelanLogger/include -std=gnu++17 -o CMakeFiles/caelogger.dir/source/Buffer.cpp.o -c /mnt/c/Users/zhouj/source/repos/CaelanLogger/CaelanLogger/source/Buffer.cpp",
+  "file": "/mnt/c/Users/zhouj/source/repos/CaelanLogger/CaelanLogger/source/Buffer.cpp"
+},
+{
+  "directory": "/mnt/c/Users/zhouj/source/repos/CaelanLogger/build/CaelanLogger",
+  "command": "/usr/bin/c++  -I/mnt/c/Users/zhouj/source/repos/CaelanLogger/CaelanLogger/include -std=gnu++17 -o CMakeFiles/caelogger.dir/source/ThreadLogger.cpp.o -c /mnt/c/Users/zhouj/source/repos/CaelanLogger/CaelanLogger/source/ThreadLogger.cpp",
+  "file": "/mnt/c/Users/zhouj/source/repos/CaelanLogger/CaelanLogger/source/ThreadLogger.cpp"
+},
+{
+  "directory": "/mnt/c/Users/zhouj/source/repos/CaelanLogger/build/CaelanLogger",
+  "command": "/usr/bin/c++  -I/mnt/c/Users/zhouj/source/repos/CaelanLogger/CaelanLogger/include -std=gnu++17 -o CMakeFiles/caelogger.dir/source/BackendLogger.cpp.o -c /mnt/c/Users/zhouj/source/repos/CaelanLogger/CaelanLogger/source/BackendLogger.cpp",
+  "file": "/mnt/c/Users/zhouj/source/repos/CaelanLogger/CaelanLogger/source/BackendLogger.cpp"
+},
+{
+  "directory": "/mnt/c/Users/zhouj/source/repos/CaelanLogger/build/CaelanLogger",
+  "command": "/usr/bin/c++  -I/mnt/c/Users/zhouj/source/repos/CaelanLogger/CaelanLogger/include -std=gnu++17 -o CMakeFiles/caelogger.dir/source/FileUtil.cpp.o -c /mnt/c/Users/zhouj/source/repos/CaelanLogger/CaelanLogger/source/FileUtil.cpp",
+  "file": "/mnt/c/Users/zhouj/source/repos/CaelanLogger/CaelanLogger/source/FileUtil.cpp"
+},
+{
+  "directory": "/mnt/c/Users/zhouj/source/repos/CaelanLogger/build/CaelanLogger",
+  "command": "/usr/bin/c++  -I/mnt/c/Users/zhouj/source/repos/CaelanLogger/CaelanLogger/include -std=gnu++17 -o CMakeFiles/caelogger.dir/source/TimeUtil.cpp.o -c /mnt/c/Users/zhouj/source/repos/CaelanLogger/CaelanLogger/source/TimeUtil.cpp",
+  "file": "/mnt/c/Users/zhouj/source/repos/CaelanLogger/CaelanLogger/source/TimeUtil.cpp"
+},
+{
+  "directory": "/mnt/c/Users/zhouj/source/repos/CaelanLogger/build/CaelanLogger",
+  "command": "/usr/bin/c++  -I/mnt/c/Users/zhouj/source/repos/CaelanLogger/CaelanLogger/include -std=gnu++17 -o CMakeFiles/caelogger.dir/source/LogStream.cpp.o -c /mnt/c/Users/zhouj/source/repos/CaelanLogger/CaelanLogger/source/LogStream.cpp",
+  "file": "/mnt/c/Users/zhouj/source/repos/CaelanLogger/CaelanLogger/source/LogStream.cpp"
+},
+{
+  "directory": "/mnt/c/Users/zhouj/source/repos/CaelanLogger/build/_deps/googletest-build/googlemock",
+  "command": "/usr/bin/c++  -I/mnt/c/Users/zhouj/source/repos/CaelanLogger/build/_deps/googletest-src/googlemock/include -I/mnt/c/Users/zhouj/source/repos/CaelanLogger/build/_deps/googletest-src/googlemock -isystem /mnt/c/Users/zhouj/source/repos/CaelanLogger/build/_deps/googletest-src/googletest/include -isystem /mnt/c/Users/zhouj/source/repos/CaelanLogger/build/_deps/googletest-src/googletest -Wall -Wshadow -Wundef -Wno-error=dangling-else -DGTEST_HAS_PTHREAD=1 -fexceptions -Wextra -Wno-unused-parameter -Wno-missing-field-initializers -std=c++17 -o CMakeFiles/gmock.dir/src/gmock-all.cc.o -c /mnt/c/Users/zhouj/source/repos/CaelanLogger/build/_deps/googletest-src/googlemock/src/gmock-all.cc",
+  "file": "/mnt/c/Users/zhouj/source/repos/CaelanLogger/build/_deps/googletest-src/googlemock/src/gmock-all.cc"
+},
+{
+  "directory": "/mnt/c/Users/zhouj/source/repos/CaelanLogger/build/_deps/googletest-build/googlemock",
+  "command": "/usr/bin/c++  -isystem /mnt/c/Users/zhouj/source/repos/CaelanLogger/build/_deps/googletest-src/googlemock/include -isystem /mnt/c/Users/zhouj/source/repos/CaelanLogger/build/_deps/googletest-src/googlemock -isystem /mnt/c/Users/zhouj/source/repos/CaelanLogger/build/_deps/googletest-src/googletest/include -isystem /mnt/c/Users/zhouj/source/repos/CaelanLogger/build/_deps/googletest-src/googletest -Wall -Wshadow -Wundef -Wno-error=dangling-else -DGTEST_HAS_PTHREAD=1 -fexceptions -Wextra -Wno-unused-parameter -Wno-missing-field-initializers -std=c++17 -o CMakeFiles/gmock_main.dir/src/gmock_main.cc.o -c /mnt/c/Users/zhouj/source/repos/CaelanLogger/build/_deps/googletest-src/googlemock/src/gmock_main.cc",
+  "file": "/mnt/c/Users/zhouj/source/repos/CaelanLogger/build/_deps/googletest-src/googlemock/src/gmock_main.cc"
+},
+{
+  "directory": "/mnt/c/Users/zhouj/source/repos/CaelanLogger/build/_deps/googletest-build/googletest",
+  "command": "/usr/bin/c++  -I/mnt/c/Users/zhouj/source/repos/CaelanLogger/build/_deps/googletest-src/googletest/include -I/mnt/c/Users/zhouj/source/repos/CaelanLogger/build/_deps/googletest-src/googletest -Wall -Wshadow -Wundef -Wno-error=dangling-else -DGTEST_HAS_PTHREAD=1 -fexceptions -Wextra -Wno-unused-parameter -Wno-missing-field-initializers -std=c++17 -o CMakeFiles/gtest.dir/src/gtest-all.cc.o -c /mnt/c/Users/zhouj/source/repos/CaelanLogger/build/_deps/googletest-src/googletest/src/gtest-all.cc",
+  "file": "/mnt/c/Users/zhouj/source/repos/CaelanLogger/build/_deps/googletest-src/googletest/src/gtest-all.cc"
+},
+{
+  "directory": "/mnt/c/Users/zhouj/source/repos/CaelanLogger/build/_deps/googletest-build/googletest",
+  "command": "/usr/bin/c++  -isystem /mnt/c/Users/zhouj/source/repos/CaelanLogger/build/_deps/googletest-src/googletest/include -isystem /mnt/c/Users/zhouj/source/repos/CaelanLogger/build/_deps/googletest-src/googletest -Wall -Wshadow -Wundef -Wno-error=dangling-else -DGTEST_HAS_PTHREAD=1 -fexceptions -Wextra -Wno-unused-parameter -Wno-missing-field-initializers -std=c++17 -o CMakeFiles/gtest_main.dir/src/gtest_main.cc.o -c /mnt/c/Users/zhouj/source/repos/CaelanLogger/build/_deps/googletest-src/googletest/src/gtest_main.cc",
+  "file": "/mnt/c/Users/zhouj/source/repos/CaelanLogger/build/_deps/googletest-src/googletest/src/gtest_main.cc"
+}
+]

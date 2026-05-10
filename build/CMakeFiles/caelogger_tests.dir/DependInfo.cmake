@@ -1,0 +1,23 @@
+
+# Consider dependencies only in project.
+set(CMAKE_DEPENDS_IN_PROJECT_ONLY OFF)
+
+# The set of languages for which implicit dependencies are needed:
+set(CMAKE_DEPENDS_LANGUAGES
+  )
+
+# The set of dependency files which are needed:
+set(CMAKE_DEPENDS_DEPENDENCY_FILES
+  "/mnt/c/Users/zhouj/source/repos/CaelanLogger/CaelanLogger/tests/test_Intergration.cpp" "CMakeFiles/caelogger_tests.dir/CaelanLogger/tests/test_Intergration.cpp.o" "gcc" "CMakeFiles/caelogger_tests.dir/CaelanLogger/tests/test_Intergration.cpp.o.d"
+  "/mnt/c/Users/zhouj/source/repos/CaelanLogger/CaelanLogger/tests/test_Time.cpp" "CMakeFiles/caelogger_tests.dir/CaelanLogger/tests/test_Time.cpp.o" "gcc" "CMakeFiles/caelogger_tests.dir/CaelanLogger/tests/test_Time.cpp.o.d"
+  )
+
+# Targets to which this target links.
+set(CMAKE_TARGET_LINKED_INFO_FILES
+  "/mnt/c/Users/zhouj/source/repos/CaelanLogger/build/CaelanLogger/CMakeFiles/caelogger.dir/DependInfo.cmake"
+  "/mnt/c/Users/zhouj/source/repos/CaelanLogger/build/_deps/googletest-build/googletest/CMakeFiles/gtest_main.dir/DependInfo.cmake"
+  "/mnt/c/Users/zhouj/source/repos/CaelanLogger/build/_deps/googletest-build/googletest/CMakeFiles/gtest.dir/DependInfo.cmake"
+  )
+
+# Fortran module output directory.
+set(CMAKE_Fortran_TARGET_MODULE_DIR "")

@@ -1,0 +1,1 @@
+/usr/bin/c++ -g -fsanitize=address CMakeFiles/caelogger_tests.dir/CaelanLogger/tests/test_Intergration.cpp.o CMakeFiles/caelogger_tests.dir/CaelanLogger/tests/test_Time.cpp.o -o caelogger_tests  CaelanLogger/libcaelogger.a lib/libgtest_main.a lib/libgtest.a
