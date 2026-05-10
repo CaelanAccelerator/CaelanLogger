@@ -2,6 +2,7 @@
 #include "SpinGuard.h"
 #include "TimeUtil.h"
 #include <iostream>
+#include <assert.h>
 
 BackendLogger::BackendLogger(size_t bufSize, std::string dir) : futil(std::make_unique<FileUtil>(dir))
 {
@@ -19,10 +20,7 @@ BackendLogger::~BackendLogger()
 	stop();
 	for (size_t i = 0; i < freeQueSize; i++)
 	{
-		if (freeQue[(freeQueFront + i) % QUEUE_SIZE])
-		{
-			delete freeQue[(freeQueFront + i) % QUEUE_SIZE];
-		}
+		delete freeQue[(freeQueFront + i) % QUEUE_SIZE];
 	}
 	freeQueSize = 0;
 }
@@ -131,6 +129,20 @@ void BackendLogger::write()
 		freeQueSize += numBuf;
 		freeAvailable.store(true, std::memory_order_release);
 	}
+}
+
+Buffer *BackendLogger::get_free_buffer()
+{
+	SpinGuard guard(spinlock);
+	if (freeQueSize < 1)
+	{
+		return nullptr;
+	}
+	Buffer *buf = freeQue[freeQueFront];
+	freeQueFront = (freeQueFront + 1) % QUEUE_SIZE;
+	--freeQueSize;
+	freeAvailable.store(freeQueSize > 0, std::memory_order_release);
+	return buf;
 }
 
 void BackendLogger::restart(size_t bufSize)

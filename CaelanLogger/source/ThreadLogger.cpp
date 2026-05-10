@@ -25,6 +25,11 @@ void ThreadLogger::handoff()
         return;
     if (!backend_logger->freeAvailable.load(std::memory_order_acquire))
         return;
+    if (!cur_buffer)
+    {
+        cur_buffer = backend_logger->get_free_buffer();
+        return;
+    }
 
     backend_logger->submit_and_acquire(cur_buffer);
 }
