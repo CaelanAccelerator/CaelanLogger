@@ -232,6 +232,6 @@ export CAELAN_LOG_DIR=/var/log/myapp
 
 ## Documentation
 
-- [`docs/ENGINEERING.md`](docs/ENGINEERING.md)
+- [`ENGINEERING.md`](ENGINEERING.md)
   — implementation details, lifecycle bug post-mortems,
   benchmark methodology, and design notes
