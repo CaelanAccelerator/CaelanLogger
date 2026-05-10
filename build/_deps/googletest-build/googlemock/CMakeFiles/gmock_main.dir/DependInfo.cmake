@@ -11,10 +11,12 @@ set(CMAKE_DEPENDS_DEPENDENCY_FILES
   "/mnt/c/Users/zhouj/source/repos/CaelanLogger/build/_deps/googletest-src/googlemock/src/gmock_main.cc" "_deps/googletest-build/googlemock/CMakeFiles/gmock_main.dir/src/gmock_main.cc.o" "gcc" "_deps/googletest-build/googlemock/CMakeFiles/gmock_main.dir/src/gmock_main.cc.o.d"
   )
 
-# Targets to which this target links.
-set(CMAKE_TARGET_LINKED_INFO_FILES
-  "/mnt/c/Users/zhouj/source/repos/CaelanLogger/build/_deps/googletest-build/googlemock/CMakeFiles/gmock.dir/DependInfo.cmake"
-  "/mnt/c/Users/zhouj/source/repos/CaelanLogger/build/_deps/googletest-build/googletest/CMakeFiles/gtest.dir/DependInfo.cmake"
+# Targets to which this target links which contain Fortran sources.
+set(CMAKE_Fortran_TARGET_LINKED_INFO_FILES
+  )
+
+# Targets to which this target links which contain Fortran sources.
+set(CMAKE_Fortran_TARGET_FORWARD_LINKED_INFO_FILES
   )
 
 # Fortran module output directory.

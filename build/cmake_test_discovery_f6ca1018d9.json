@@ -1,0 +1,59 @@
+{
+  "tests": 7,
+  "name": "AllTests",
+  "testsuites": [
+    {
+      "name": "LoggerIntegration",
+      "tests": 2,
+      "testsuite": [
+        {
+          "name": "HeavySingleThread_ManyHandoffs_NoLoss_WithinMaxLine",
+          "file": "\/mnt\/c\/Users\/zhouj\/source\/repos\/CaelanLogger\/CaelanLogger\/tests\/test_Intergration.cpp",
+          "line": 164
+        },
+        {
+          "name": "HeavyMultiThread_PerThreadNoLoss_WithinMaxLine",
+          "file": "\/mnt\/c\/Users\/zhouj\/source\/repos\/CaelanLogger\/CaelanLogger\/tests\/test_Intergration.cpp",
+          "line": 221
+        }
+      ]
+    },
+    {
+      "name": "LeakCheck",
+      "tests": 1,
+      "testsuite": [
+        {
+          "name": "BackendLoggerDestroysCleanly",
+          "file": "\/mnt\/c\/Users\/zhouj\/source\/repos\/CaelanLogger\/CaelanLogger\/tests\/test_Intergration.cpp",
+          "line": 304
+        }
+      ]
+    },
+    {
+      "name": "LogTimeTest",
+      "tests": 4,
+      "testsuite": [
+        {
+          "name": "NowDateString_FormatAndRange",
+          "file": "\/mnt\/c\/Users\/zhouj\/source\/repos\/CaelanLogger\/CaelanLogger\/tests\/test_Time.cpp",
+          "line": 83
+        },
+        {
+          "name": "NowTimeOnlyString_FormatAndRange",
+          "file": "\/mnt\/c\/Users\/zhouj\/source\/repos\/CaelanLogger\/CaelanLogger\/tests\/test_Time.cpp",
+          "line": 90
+        },
+        {
+          "name": "NowString_NotEmptyAndCallable",
+          "file": "\/mnt\/c\/Users\/zhouj\/source\/repos\/CaelanLogger\/CaelanLogger\/tests\/test_Time.cpp",
+          "line": 97
+        },
+        {
+          "name": "NowDateString_LexOrderNonDecreasing",
+          "file": "\/mnt\/c\/Users\/zhouj\/source\/repos\/CaelanLogger\/CaelanLogger\/tests\/test_Time.cpp",
+          "line": 113
+        }
+      ]
+    }
+  ]
+}
