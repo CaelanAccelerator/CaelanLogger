@@ -1,2 +1,0 @@
-/usr/bin/ar qc libcaelogger.a CMakeFiles/caelogger.dir/source/Buffer.cpp.o CMakeFiles/caelogger.dir/source/ThreadLogger.cpp.o CMakeFiles/caelogger.dir/source/BackendLogger.cpp.o CMakeFiles/caelogger.dir/source/FileUtil.cpp.o CMakeFiles/caelogger.dir/source/TimeUtil.cpp.o CMakeFiles/caelogger.dir/source/LogStream.cpp.o
-/usr/bin/ranlib libcaelogger.a
