@@ -33,6 +33,31 @@ jobs:
       - name: Test
         run: ctest --test-dir build --output-on-failure
 
+  asan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build clang
+
+      - name: Configure (ASan)
+        run: |
+          cmake -S . -B asan -G Ninja \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_CXX_COMPILER=clang++ \
+            -DENABLE_ASAN=ON
+
+      - name: Build
+        run: cmake --build asan
+
+      - name: Test (ASan)
+        env:
+          ASAN_OPTIONS: "detect_leaks=1:halt_on_error=1:abort_on_error=1"
+        run: ctest --test-dir asan --output-on-failure
+
   tsan:
     runs-on: ubuntu-latest
     steps:
