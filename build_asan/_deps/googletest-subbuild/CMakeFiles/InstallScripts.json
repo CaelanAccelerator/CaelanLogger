@@ -1,7 +1,0 @@
-{
-	"InstallScripts" : 
-	[
-		"/mnt/c/Users/zhouj/source/repos/CaelanLogger/build_asan/_deps/googletest-subbuild/cmake_install.cmake"
-	],
-	"Parallel" : false
-}

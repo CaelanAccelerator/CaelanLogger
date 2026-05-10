@@ -1,5 +1,0 @@
-if(EXISTS "/mnt/c/Users/zhouj/source/repos/CaelanLogger/build_asan/caelogger_tests[1]_tests.cmake")
-  include("/mnt/c/Users/zhouj/source/repos/CaelanLogger/build_asan/caelogger_tests[1]_tests.cmake")
-else()
-  add_test(caelogger_tests_NOT_BUILT caelogger_tests_NOT_BUILT)
-endif()

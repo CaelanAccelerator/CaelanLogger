@@ -1,1 +1,0 @@
-/usr/bin/c++ -g -fsanitize=address CMakeFiles/caelogger_bench.dir/CaelanLogger/tests/Benchmark.cpp.o -o caelogger_bench  CaelanLogger/libcaelogger.a
