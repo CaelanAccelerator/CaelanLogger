@@ -21,7 +21,6 @@ public:
 	void run();
 	void stop();
 	void submitAndAcquire(Buffer *&);
-	void submitOnly(Buffer *);
 	void write();
 	Buffer *get_free_buffer();
 	void record_drop();

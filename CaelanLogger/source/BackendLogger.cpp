@@ -81,16 +81,6 @@ void BackendLogger::run()
 		write();
 }
 
-void BackendLogger::submitOnly(Buffer *buf)
-{
-	if (!buf) return;
-	SpinGuard guard(spinlockPen_);
-	pendingQue_[pendingQueTail_] = buf;
-	pendingQueTail_ = (pendingQueTail_ + 1) % queueSize_;
-	pendingQueSize_.fetch_add(1, std::memory_order_relaxed);
-	cv_.notify_one();
-}
-
 void BackendLogger::submitAndAcquire(Buffer *&fullBuffer)
 {
 	if (!fullBuffer)

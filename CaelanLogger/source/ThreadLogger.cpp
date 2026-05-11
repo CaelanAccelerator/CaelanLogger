@@ -11,8 +11,9 @@ ThreadLogger::ThreadLogger(size_t sizeBuf, BackendLogger *bl)
 ThreadLogger::~ThreadLogger()
 {
     if (curBuffer_ && backendLogger_)
-        backendLogger_->submitOnly(curBuffer_);
-    curBuffer_    = nullptr;
+        backendLogger_->submitAndAcquire(curBuffer_);
+    delete curBuffer_;
+    curBuffer_ = nullptr;
     backendLogger_ = nullptr;
 }
 

@@ -322,6 +322,26 @@ the wrong owner.
 stale slot is indistinguishable from a live slot when the ring is full,
 making any full-range iteration unsafe.
 
+### 8. TLS ThreadLogger outlives AsyncLogger (stack-use-after-return in CI)
+
+`tls()` stored the TLS map as a function-local `thread_local`. When
+`AsyncLogger logger` was a stack variable inside a test function, its
+destructor ran when the function returned. But the TLS map — and the
+`ThreadLogger` pointing to `logger.backend_` — lives until thread exit.
+At program shutdown, the TLS map destructor called `~ThreadLogger()`
+which called `submitAndAcquire` on the long-dead stack frame →
+`stack-use-after-return` under ASan.
+
+Fixed by factoring the TLS map into a named static helper `tlsMap()` so
+it is accessible outside of `tls()`. `~AsyncLogger()` now erases its
+backend's entry from `tlsMap()` before `backend_.stop()` — while the
+backend is still alive — so `~ThreadLogger()` runs safely during erase
+rather than at thread exit on a dangling pointer.
+
+**Lesson:** thread-local storage outlives any object whose address it
+holds. If a TLS entry references a stack-allocated object, the owner
+must explicitly invalidate or remove that entry in its destructor.
+
 ---
 
 ## On the spdlog comparison
