@@ -11,13 +11,9 @@ ThreadLogger::ThreadLogger(size_t sizeBuf, BackendLogger *bl)
 ThreadLogger::~ThreadLogger()
 {
     if (curBuffer_ && backendLogger_)
-    {
-        backendLogger_->submitAndAcquire(curBuffer_);
-        // curBuffer_ is now either a borrowed free buffer or nullptr —
-        // ownership belongs to BackendLogger, do not delete
-        curBuffer_ = nullptr;
-        backendLogger_ = nullptr;
-    }
+        backendLogger_->submitOnly(curBuffer_);
+    curBuffer_    = nullptr;
+    backendLogger_ = nullptr;
 }
 
 void ThreadLogger::handoff(bool force)

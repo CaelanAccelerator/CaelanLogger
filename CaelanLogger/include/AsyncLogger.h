@@ -19,6 +19,11 @@ public:
 
     ~AsyncLogger()
     {
+        // Erase this thread's TLS entry while backend_ is still alive,
+        // so ~ThreadLogger() can safely call submitOnly().
+        // Without this, the TLS map destructs at thread exit after backend_
+        // is gone, causing stack-use-after-return.
+        tlsMap().erase(&backend_);
         backend_.stop();
     }
 
@@ -28,8 +33,7 @@ public:
 
     ThreadLogger &tls()
     {
-        thread_local std::unordered_map<BackendLogger *, ThreadLogger> map;
-        auto [it, _] = map.try_emplace(&backend_, bufSize_, &backend_);
+        auto [it, _] = tlsMap().try_emplace(&backend_, bufSize_, &backend_);
         return it->second;
     }
 
@@ -44,6 +48,12 @@ public:
     }
 
 private:
+    static std::unordered_map<BackendLogger *, ThreadLogger> &tlsMap()
+    {
+        thread_local std::unordered_map<BackendLogger *, ThreadLogger> map;
+        return map;
+    }
+
     BackendLogger backend_;
     size_t bufSize_;
     size_t queueSize_;
