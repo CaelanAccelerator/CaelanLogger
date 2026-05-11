@@ -18,6 +18,14 @@ BackendLogger::BackendLogger(size_t bufSize, size_t queueSize, std::string dir) 
 BackendLogger::~BackendLogger()
 {
 	stop();
+	// Drain any pending buffers left after stop (e.g. TLS cleanup may have
+	// submitted after the last writer drain, leaving them unprocessed).
+	while (pendingQueSize_.load(std::memory_order_relaxed) > 0)
+	{
+		delete pendingQue_[pendingQueHead_];
+		pendingQueHead_ = (pendingQueHead_ + 1) % queueSize_;
+		pendingQueSize_.fetch_sub(1, std::memory_order_relaxed);
+	}
 	for (size_t i = freeQueHead_; i < freeQueHead_ + freeQueSize_; i++)
 	{
 		delete freeQue_[i % queueSize_];
