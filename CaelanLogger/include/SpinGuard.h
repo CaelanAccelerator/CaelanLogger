@@ -4,10 +4,10 @@
 
 struct SpinGuard
 {
-	std::atomic_flag &spinlock_;
-	explicit SpinGuard(std::atomic_flag &lock) : spinlock_(lock)
+	std::atomic_flag &spinlockPen_;
+	explicit SpinGuard(std::atomic_flag &lock) : spinlockPen_(lock)
 	{
-		while (spinlock_.test_and_set(std::memory_order_acquire))
+		while (spinlockPen_.test_and_set(std::memory_order_acquire))
 		{
 			std::this_thread::yield();
 		}
@@ -15,6 +15,6 @@ struct SpinGuard
 
 	~SpinGuard()
 	{
-		spinlock_.clear(std::memory_order_release);
+		spinlockPen_.clear(std::memory_order_release);
 	}
 };

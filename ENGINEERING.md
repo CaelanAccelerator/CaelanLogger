@@ -259,6 +259,69 @@ This was caught by the integration tests, which now verify
 `logged + dropped == attempted` directly by scanning the log directory
 and summing `dropped: N` delta records.
 
+### 5. Writer-thread lost wakeup on stop
+
+The writer loop used `pendingQueSize_.wait(0)` (block while zero) and
+`stop()` called `pendingQueSize_.notify_all()` after setting
+`running_ = false`. There is a race window: the writer reads
+`running_ = true`, evaluates its loop condition, then `stop()` sets
+`running_ = false` and fires `notify_all()` — before the writer enters
+`wait()`. The notification is lost; the writer blocks forever;
+`writer_.join()` deadlocks.
+
+`atomic::wait` only supports a single-value predicate and cannot
+atomically check a compound condition. Fixed by replacing the atomic
+wait with `std::condition_variable::wait(lock, pred)`, whose predicate
+covers both "has pending work" and "stopping". The mutex held by
+`cv_.wait` guarantees that `stop()`'s state change and `notify_all()`
+are not visible to the writer until after it has registered the wait.
+
+### 6. Temporary-object destructor corrupts buffer ownership in `tls()`
+
+```cpp
+// BEFORE — creates a temporary ThreadLogger, then moves it
+map.emplace(&backend_, ThreadLogger(bufSize_, &backend_));
+```
+
+`map.emplace` constructs a temporary `ThreadLogger`, copies/moves it
+into the map, then destructs the temporary. The temporary's destructor
+ran with a non-null `curBuffer_`, triggering `submitAndAcquire` (which
+submitted the buffer to pending and acquired a new one from the free
+pool) followed by `delete curBuffer_` on the newly borrowed pool buffer.
+This gave the same buffer two owners simultaneously: the pool (via the
+stale `freeQue_` slot that was never cleared) and the live map entry.
+
+Fixed by `map.try_emplace(&backend_, bufSize_, &backend_)`, which
+forwards arguments directly to the value constructor and never
+creates a temporary. No destructor fires for a partially-constructed
+entry.
+
+### 7. freeQue stale-slot double-free
+
+Taking a buffer from `freeQue_` advanced `head` but left the vacated
+slot with the old pointer. After the ring completed a full cycle
+(`freeQueSize_ == queueSize_`), the destructor's iteration
+`[head, head + freeQueSize_)` covered all 32 physical positions.
+The slot at `head - 1 (mod 32)` — the stale slot — held the same
+pointer as the live slot where the writer had since returned that
+buffer. The destructor encountered the pointer twice and deleted it
+twice → `heap-use-after-free` under ASan.
+
+Root cause was compounded by bug 6: the spurious temporary destructor
+called `delete curBuffer_` on a pool buffer. This removed the buffer
+from existence while its pointer remained in the stale slot. The live
+slot (where the buffer had been returned by the writer) and the stale
+slot both fell inside the full-ring iteration range → double-free.
+
+Both causes are fixed together: `try_emplace` eliminates the spurious
+destructor (bug 6), and removing `delete curBuffer_` from
+`~ThreadLogger` ensures that a borrowed pool buffer is never freed by
+the wrong owner.
+
+**Lesson:** ring-buffer slots must be nulled when consumed. A non-null
+stale slot is indistinguishable from a live slot when the ring is full,
+making any full-range iteration unsafe.
+
 ---
 
 ## On the spdlog comparison

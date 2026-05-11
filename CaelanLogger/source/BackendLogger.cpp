@@ -1,28 +1,33 @@
 #include "BackendLogger.h"
 #include "SpinGuard.h"
 #include "TimeUtil.h"
-#include <iostream>
-#include <assert.h>
 
-BackendLogger::BackendLogger(size_t bufSize, std::string dir) : futil_(std::make_unique<FileUtil>(dir))
+BackendLogger::BackendLogger(size_t bufSize, size_t queueSize, std::string dir) : queueSize_(queueSize), futil_(std::make_unique<FileUtil>(dir))
 {
-	for (size_t i = 0; i < QUEUE_SIZE; i++)
+	pendingQue_ = std::make_unique<Buffer *[]>(queueSize_);
+	freeQue_ = std::make_unique<Buffer *[]>(queueSize_);
+	for (size_t i = 0; i < queueSize_; i++)
 	{
 		freeQue_[i] = new Buffer(bufSize);
 	}
 	freeQueTail_ = 0;
-	freeQueSize_ = QUEUE_SIZE;
+	freeQueSize_ = queueSize_;
 	freeAvailable_.store(freeQueSize_ > 0, std::memory_order_release);
 }
 
 BackendLogger::~BackendLogger()
 {
 	stop();
-	for (size_t i = 0; i < freeQueSize_; i++)
+	for (size_t i = freeQueHead_; i < freeQueHead_ + freeQueSize_; i++)
 	{
-		delete freeQue_[(freeQueHead_ + i) % QUEUE_SIZE];
+		delete freeQue_[i % queueSize_];
 	}
 	freeQueSize_ = 0;
+}
+
+void BackendLogger::record_drop()
+{
+	futil_->add_dropped();
 }
 
 void BackendLogger::start()
@@ -37,7 +42,18 @@ void BackendLogger::start()
 
 void BackendLogger::stop()
 {
-	running_.store(false, std::memory_order_release);
+	{
+		// add lock to prevent notify loss
+		/*
+		Writer: pred() → false（running_=true）← still holding lock
+																					stop(): running_=false（write, since no lock）
+																					stop(): notify_all()  ← Writer is not in wait，loss the notify！
+		Writer: unlock + enter wait              ← block forever
+		*/
+		std::lock_guard<std::mutex> lock(cvMutex_);
+		running_.store(false, std::memory_order_release);
+	}
+	cv_.notify_all();
 	if (writer_.joinable())
 		writer_.join();
 	futil_->roll();
@@ -45,58 +61,60 @@ void BackendLogger::stop()
 
 void BackendLogger::run()
 {
-	while (running_.load(std::memory_order_acquire))
-	{
-		if (pendingQueSize_.load(std::memory_order_relaxed) == 0)
-		{
-			std::this_thread::sleep_for(std::chrono::microseconds(100));
-			continue;
-		}
-		write();
-	}
-
-	// drain? finish pending queue before ending
 	while (true)
 	{
-		bool empty = false;
 		{
-			SpinGuard g(spinlock_);
-			empty = (pendingQueSize_.load(std::memory_order_relaxed) == 0);
+			std::unique_lock<std::mutex> lock(cvMutex_);
+			auto predicate = [this]
+			{
+				return pendingQueSize_.load(std::memory_order_relaxed) > 0 || !running_.load(std::memory_order_acquire);
+			};
+			cv_.wait(lock, predicate);
 		}
-		if (empty)
+		if (!running_.load(std::memory_order_acquire) && pendingQueSize_.load(std::memory_order_relaxed) == 0)
 			break;
 		write();
 	}
+
+	// drain: finish any remaining pending buffers before exiting
+	while (pendingQueSize_.load(std::memory_order_relaxed) > 0)
+		write();
 }
 
 void BackendLogger::submitAndAcquire(Buffer *&fullBuffer)
 {
 	if (!fullBuffer)
 		return;
-
-	SpinGuard guard(spinlock_);
-	assert(pendingQueSize_.load(std::memory_order_relaxed) + freeQueSize_ <= QUEUE_SIZE);
-	pendingQue_[pendingQueTail_] = fullBuffer;
-	pendingQueTail_ = (pendingQueTail_ + 1) % QUEUE_SIZE;
-	pendingQueSize_.fetch_add(1, std::memory_order_relaxed);
-
-	if (freeQueSize_ < 1)
 	{
-		fullBuffer = nullptr;
-		freeAvailable_.store(false, std::memory_order_release);
-		return;
+		SpinGuard guard(spinlockPen_);
+		pendingQue_[pendingQueTail_] = fullBuffer;
+		pendingQueTail_ = (pendingQueTail_ + 1) % queueSize_;
+		pendingQueSize_.fetch_add(1, std::memory_order_relaxed);
+		cv_.notify_one();
 	}
-	fullBuffer = freeQue_[freeQueHead_];
-	freeQueHead_ = (freeQueHead_ + 1) % QUEUE_SIZE;
-	--freeQueSize_;
+
+	{
+		SpinGuard guard(spinlockFree_);
+		if (freeQueSize_ < 1)
+		{
+			fullBuffer = nullptr;
+			freeAvailable_.store(false, std::memory_order_release);
+			return;
+		}
+		fullBuffer = freeQue_[freeQueHead_];
+		freeQueHead_ = (freeQueHead_ + 1) % queueSize_;
+		--freeQueSize_;
+	}
+	freeAvailable_.store(freeQueSize_ > 0, std::memory_order_release);
 }
 
 void BackendLogger::write()
 {
 	size_t numBuf{0};
-	Buffer *buffer[QUEUE_SIZE];
+	std::vector<Buffer *> buffer;
+	buffer.resize(queueSize_);
 	{
-		SpinGuard guard(spinlock_);
+		SpinGuard guard(spinlockPen_);
 
 		if (pendingQueSize_.load(std::memory_order_relaxed) == 0)
 			return;
@@ -104,7 +122,7 @@ void BackendLogger::write()
 		while (pendingQueSize_.load(std::memory_order_relaxed))
 		{
 			buffer[numBuf++] = pendingQue_[pendingQueHead_];
-			pendingQueHead_ = (pendingQueHead_ + 1) % QUEUE_SIZE;
+			pendingQueHead_ = (pendingQueHead_ + 1) % queueSize_;
 			pendingQueSize_.fetch_sub(1, std::memory_order_relaxed);
 		}
 	}
@@ -114,78 +132,25 @@ void BackendLogger::write()
 		size_t size = buffer[i]->getSize();
 		futil_->append(data, size);
 		buffer[i]->reset();
-	}
-	assert(freeQueSize_ + numBuf <= QUEUE_SIZE);
-	{
-		SpinGuard guard(spinlock_);
-		for (size_t i = 0; i < numBuf; i++)
 		{
+			SpinGuard guard(spinlockFree_);
 			freeQue_[freeQueTail_] = buffer[i];
-			freeQueTail_ = (freeQueTail_ + 1) % QUEUE_SIZE;
+			freeQueTail_ = (freeQueTail_ + 1) % queueSize_;
+			freeQueSize_++;
 		}
-		freeQueSize_ += numBuf;
 		freeAvailable_.store(true, std::memory_order_release);
-		assert(freeQueSize_ <= QUEUE_SIZE);
 	}
 }
 
 Buffer *BackendLogger::get_free_buffer()
 {
-	SpinGuard guard(spinlock_);
+	SpinGuard guard(spinlockFree_);
 	if (freeQueSize_ < 1)
-	{
 		return nullptr;
-	}
+
 	Buffer *buf = freeQue_[freeQueHead_];
-	freeQueHead_ = (freeQueHead_ + 1) % QUEUE_SIZE;
+	freeQueHead_ = (freeQueHead_ + 1) % queueSize_;
 	--freeQueSize_;
 	freeAvailable_.store(freeQueSize_ > 0, std::memory_order_release);
 	return buf;
-}
-
-void BackendLogger::restart(size_t bufSize)
-{
-	stop();
-
-	{
-		SpinGuard guard(spinlock_);
-
-		pendingQueHead_ = 0;
-		pendingQueTail_ = 0;
-		pendingQueSize_.store(0, std::memory_order_relaxed);
-
-		for (size_t i = 0; i < freeQueSize_; ++i)
-		{
-			size_t idx = (freeQueHead_ + i) % QUEUE_SIZE;
-			if (freeQue_[idx])
-			{
-				freeQue_[idx]->reset();
-			}
-		}
-
-		Buffer *tmp[QUEUE_SIZE];
-		size_t size = freeQueSize_;
-
-		for (size_t i = 0; i < size; ++i)
-		{
-			tmp[i] = freeQue_[(freeQueHead_ + i) % QUEUE_SIZE];
-		}
-
-		for (size_t i = 0; i < size; ++i)
-		{
-			freeQue_[i] = tmp[i];
-		}
-
-		for (size_t i = size; i < QUEUE_SIZE; ++i)
-		{
-			freeQue_[i] = nullptr;
-		}
-
-		freeQueHead_ = 0;
-		freeQueTail_ = size % QUEUE_SIZE;
-		freeAvailable_.store(freeQueSize_ > 0, std::memory_order_release);
-	}
-
-	futil_ = std::make_unique<FileUtil>();
-	start();
 }

@@ -112,20 +112,6 @@ static std::string make_unique_token(const char *tag)
     return std::string("<<") + tag + "_" + std::to_string(now) + ">>";
 }
 
-// For tests after the first singleton use:
-// 1. restart/stop old state so old dropped counters get rolled
-// 2. purge old files
-// 3. restart clean logger for this test
-static void restart_clean_logger(size_t bufSize, const fs::path &logDir)
-{
-    AsyncLogger::getInstance().restart(bufSize);
-    AsyncLogger::getInstance().shutdown();
-
-    purge_log_dir(logDir);
-
-    AsyncLogger::getInstance().restart(bufSize);
-}
-
 // ----------------------- tests -----------------------
 
 TEST(LoggerIntegration, SingleThread_LoggedPlusDroppedEqualsAttempted)
@@ -140,18 +126,18 @@ TEST(LoggerIntegration, SingleThread_LoggedPlusDroppedEqualsAttempted)
     const std::string token = make_unique_token("SINGLE");
     const std::string payload(180, 'X');
 
-    AsyncLogger::init(bufSize);
+    AsyncLogger logger(bufSize, 32, logDir.string());
 
     for (int i = 0; i < kLines; ++i)
     {
-        LOG(INFO) << "L=" << i << " " << token << " " << payload;
+        LOG_TO(logger, INFO) << "L=" << i << " " << token << " " << payload;
 
         if ((i + 1) % kHandoffEvery == 0)
-            AsyncLogger::getInstance().tls().handoff();
+            logger.tls().handoff();
     }
 
-    AsyncLogger::getInstance().tls().handoff(true);
-    AsyncLogger::getInstance().shutdown();
+    logger.tls().handoff(true);
+    logger.shutdown();
 
     const std::string logs = read_all_logs(logDir);
 
@@ -165,13 +151,12 @@ TEST(LoggerIntegration, SingleThread_LoggedPlusDroppedEqualsAttempted)
 TEST(LoggerIntegration, MultiThread_LoggedPlusDroppedEqualsAttempted)
 {
     const fs::path logDir = fs::current_path() / "log";
+    purge_log_dir(logDir);
 
     const size_t bufSize = 2000;
     const int kThreads = 6;
     const int kLinesPerThread = 5000;
     const int kHandoffEvery = 300;
-
-    restart_clean_logger(bufSize, logDir);
 
     std::vector<std::string> tokens;
     tokens.reserve(kThreads);
@@ -184,6 +169,8 @@ TEST(LoggerIntegration, MultiThread_LoggedPlusDroppedEqualsAttempted)
 
     const std::string payload(120, 'X');
 
+    AsyncLogger logger(bufSize, 32, logDir.string());
+
     std::vector<std::thread> threads;
     threads.reserve(kThreads);
 
@@ -193,22 +180,22 @@ TEST(LoggerIntegration, MultiThread_LoggedPlusDroppedEqualsAttempted)
                              {
             for (int i = 0; i < kLinesPerThread; ++i)
             {
-                LOG(INFO) << "T=" << t
-                          << " I=" << i
-                          << " " << tokens[t]
-                          << " " << payload;
+                LOG_TO(logger, INFO) << "T=" << t
+                                     << " I=" << i
+                                     << " " << tokens[t]
+                                     << " " << payload;
 
                 if ((i + 1) % kHandoffEvery == 0)
-                    AsyncLogger::getInstance().tls().handoff();
+                    logger.tls().handoff();
             }
 
-            AsyncLogger::getInstance().tls().handoff(true); });
+            logger.tls().handoff(true); });
     }
 
     for (auto &th : threads)
         th.join();
 
-    AsyncLogger::getInstance().shutdown();
+    logger.shutdown();
 
     const std::string logs = read_all_logs(logDir);
 
@@ -227,7 +214,7 @@ TEST(LoggerIntegration, MultiThread_LoggedPlusDroppedEqualsAttempted)
 TEST(LeakCheck, BackendLoggerDestroysCleanly)
 {
     {
-        BackendLogger bl(2000, "/tmp/test_log");
+        BackendLogger bl(2000, 32, "/tmp/test_log");
         bl.start();
         bl.stop();
     }

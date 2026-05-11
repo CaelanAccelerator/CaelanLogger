@@ -18,4 +18,5 @@ private:
 	Buffer *curBuffer_;
 	BackendLogger *backendLogger_;
 	friend class LogStream;
+	friend class AsyncLogger;
 };

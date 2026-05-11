@@ -30,7 +30,7 @@ struct BenchConfig
     int workRounds = 512;
     int handoffEvery = 256;
     std::size_t asyncBufferSize = 128 * 1024;
-    std::string payload = std::string(128, 'X');
+    std::string payload = std::string(256, 'X');
 };
 
 struct BenchResult
@@ -233,7 +233,7 @@ static BenchResult run_async(const BenchConfig &cfg, const fs::path &dir, const 
     const std::size_t attempted =
         static_cast<std::size_t>(cfg.threads) * static_cast<std::size_t>(cfg.linesPerThread);
 
-    AsyncLogger::init(cfg.asyncBufferSize);
+    AsyncLogger logger(cfg.asyncBufferSize, 32, dir.string());
 
     std::vector<std::thread> threads;
     std::vector<std::uint64_t> checksums(cfg.threads, 0);
@@ -250,17 +250,13 @@ static BenchResult run_async(const BenchConfig &cfg, const fs::path &dir, const 
             {
                 local ^= do_work(cfg.workRounds, static_cast<std::uint64_t>(t) << 32 | static_cast<std::uint64_t>(i));
 
-                LOG(INFO) << token
-                          << " T=" << t
-                          << " I=" << i
-                          << " " << cfg.payload;
-
-                // if ((i + 1) % cfg.handoffEvery == 0)
-                //     AsyncLogger::getInstance().tls().handoff();
+                LOG_TO(logger, INFO) << token
+                                     << " T=" << t
+                                     << " I=" << i
+                                     << " " << cfg.payload;
             }
 
-            // Important: final flush must force submit this thread's TLS buffer.
-            AsyncLogger::getInstance().tls().handoff(true);
+            logger.tls().handoff(true);
 
             checksums[t] = local; });
     }
@@ -270,7 +266,7 @@ static BenchResult run_async(const BenchConfig &cfg, const fs::path &dir, const 
 
     auto producersDone = std::chrono::steady_clock::now();
 
-    AsyncLogger::getInstance().shutdown();
+    logger.shutdown();
 
     auto end = std::chrono::steady_clock::now();
 
@@ -291,7 +287,7 @@ static BenchResult run_async(const BenchConfig &cfg, const fs::path &dir, const 
 }
 
 static BenchResult run_spdlog_async(const BenchConfig &cfg, const fs::path &dir,
-                                     const std::string &token, std::size_t queueSize)
+                                    const std::string &token, std::size_t queueSize)
 {
     reset_dir(dir);
 
@@ -391,7 +387,7 @@ int main()
     const std::string spdlogToken = "<<SPDLOG_BENCH_TOKEN>>";
 
     // Match spdlog queue memory to CaelanLogger's total buffer pool.
-    // CaelanLogger: QUEUE_SIZE=32 buffers x asyncBufferSize bytes = total pool.
+    // CaelanLogger: queueSize_=32 buffers x asyncBufferSize bytes = total pool.
     // spdlog async_msg: fmt::memory_buffer (250B inline) + struct fields ≈ 400B/msg.
     const std::size_t caelMemBytes = 32 * cfg.asyncBufferSize;
     constexpr std::size_t spdlogMsgBytes = 400;
@@ -404,9 +400,9 @@ int main()
     std::cout << "  spdlog queue: ~" << (spdlogQueue * spdlogMsgBytes / 1024) << " KB  (" << spdlogQueue << " msgs x ~" << spdlogMsgBytes << " B)\n";
     std::cout << "Note: spdlog formats on producer thread; CaelanLogger defers to writer thread.\n";
 
-    const BenchResult sync   = run_sync(cfg, syncDir, syncToken);
-    const BenchResult async  = run_async(cfg, asyncDir, asyncToken);
-    const BenchResult spd    = run_spdlog_async(cfg, spdlogDir, spdlogToken, spdlogQueue);
+    const BenchResult sync = run_sync(cfg, syncDir, syncToken);
+    const BenchResult async = run_async(cfg, asyncDir, asyncToken);
+    const BenchResult spd = run_spdlog_async(cfg, spdlogDir, spdlogToken, spdlogQueue);
 
     print_result("SyncLogger (mutex + write)", sync);
     print_result("AsyncLogger (CaelanLogger)", async);

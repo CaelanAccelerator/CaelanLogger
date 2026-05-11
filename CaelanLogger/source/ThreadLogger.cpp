@@ -13,7 +13,8 @@ ThreadLogger::~ThreadLogger()
     if (curBuffer_ && backendLogger_)
     {
         backendLogger_->submitAndAcquire(curBuffer_);
-        delete curBuffer_;
+        // curBuffer_ is now either a borrowed free buffer or nullptr —
+        // ownership belongs to BackendLogger, do not delete
         curBuffer_ = nullptr;
         backendLogger_ = nullptr;
     }

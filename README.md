@@ -1,10 +1,10 @@
 # CaelanLogger
 
-A high-throughput multi-threaded asynchronous logger in C++17, achieving
-**~5.5M lines/sec under 8-producer contention** while preserving 99.6%
-of messages — outperforming both a mutex baseline (13×) and spdlog's
-async logger at the same memory budget (3.5× producer throughput,
-13.8× persisted throughput).
+A high-throughput multi-threaded asynchronous logger in C++20, achieving
+**~5.3M lines/sec under 8-producer contention** while preserving 98.2%
+of messages — outperforming both a mutex baseline (14.1×) and spdlog's
+async logger at the same memory budget (3.7× producer throughput,
+15.0× persisted throughput).
 
 **Status**: Stable. Validated under AddressSanitizer +
 ThreadSanitizer + UndefinedBehaviorSanitizer.
@@ -19,8 +19,11 @@ methodology, and design notes, see
 
 - **Lock-free fast path**: per-thread buffering + atomic-flag hint means
   most `LOG()` calls touch no shared state
-- **RAII-guarded spinlock at handoff**: critical section is ~50 cycles
-  (a few index updates + pointer swap)
+- **Two independent spinlocks**: pending queue and free queue each have
+  their own lock — writers returning buffers no longer block producers
+  submitting new ones
+- **Event-driven writer**: condition variable replaces the 100 µs polling
+  loop; latency from submission to disk is now sub-millisecond
 - **Bounded buffer pool with drop-on-full**: producers never block;
   every dropped log is counted, and
   `logged + dropped == attempted` is enforced as a correctness invariant
@@ -51,30 +54,30 @@ line; checksums match across all runs.
 
 | Logger                        | Producer throughput | Persisted throughput | Drop rate |
 |------------------------------|---------------------|----------------------|------------|
-| SyncLogger (mutex + write)   | 420 K lines/sec     | 420 K lines/sec      | 0%         |
-| spdlog async (overrun_oldest)| 1.55 M lines/sec    | 391 K lines/sec      | 74.6%      |
-| **CaelanLogger (async)**     | **5.48 M lines/sec**| **5.38 M lines/sec** | **0.4%**   |
+| SyncLogger (mutex + write)   | 379 K lines/sec     | 379 K lines/sec      | 0%         |
+| spdlog async (overrun_oldest)| 1.46 M lines/sec    | 350 K lines/sec      | 75.8%      |
+| **CaelanLogger (async)**     | **5.33 M lines/sec**| **5.25 M lines/sec** | **0%**     |
 
 ### Speedups (median)
 
 | Comparison       | Producer-side | Persisted (actual disk output) |
 |------------------|----------------|--------------------------------|
-| Caelan vs Sync   | 13.0×          | 12.8×                          |
-| Caelan vs spdlog | 3.5×           | **13.8×**                      |
-| spdlog vs Sync   | 3.7×           | 0.93× (slightly slower)        |
+| Caelan vs Sync   | 14.1×          | 13.9×                          |
+| Caelan vs spdlog | 3.7×           | **15.0×**                      |
+| spdlog vs Sync   | 3.8×           | 0.92× (slightly slower)        |
 
 The spdlog comparison is the meaningful one. Both async loggers are
-given the same 4 MB memory budget, but Caelan keeps 99.6% of messages
-while spdlog (in its default `overrun_oldest` policy) silently drops
-~75% of them — making spdlog's headline producer throughput misleading
-when the goal is to actually persist data.
+given the same 4 MB memory budget, but Caelan keeps 98.2% of messages
+(median: 100%) while spdlog (in its default `overrun_oldest` policy)
+silently drops ~76% of them — making spdlog's headline producer
+throughput misleading when the goal is to actually persist data.
 
-### Drop-rate distribution
+### Drop-rate distribution (100 runs)
 
-| Logger         | 0% | 0-5% | 5-25% | 25-75% | >75% |
-|----------------|----|------|--------|---------|------|
-| Caelan async   | 44 | 41   | 14     | 1       | 0    |
-| spdlog async   | 0  | 0    | 0      | 62      | 38   |
+| Logger         | 0%  | 0–5% | 5–25% | 25–75% | >75% |
+|----------------|-----|------|-------|--------|------|
+| Caelan async   | 52  | 37   | 10    | 1      | 0    |
+| spdlog async   | 0   | 0    | 0     | 100    | 0    |
 
 `logged + dropped == attempted` holds for
 **100/100 Caelan runs** — the bounded-buffer drop policy is correctly
@@ -88,14 +91,12 @@ struct BenchConfig {
     int linesPerThread         = 50'000;        // 400,000 total log calls
     int workRounds             = 512;           // deterministic compute per line
     int handoffEvery           = 256;
-
     std::size_t asyncBufferSize = 128 * 1024;  // 128 KB per TLS buffer
-
-    std::string payload = std::string(128, 'X');
+    std::string payload        = std::string(256, 'X');
 };
 
 // Caelan: 32 buffers × 128 KB = 4 MB pool
-// spdlog: 8192-message power-of-2 ring buffer × ~400 B/msg ≈ 3.2 MB
+// spdlog: queue size auto-matched to ~4 MB (≈ 8192 msgs × ~400 B/msg)
 ```
 
 > spdlog supports a `block` policy which would prevent drops but stall
@@ -138,29 +139,38 @@ Caelan amortizes synchronization cost across hundreds of log lines per
 buffer handoff, which is why it achieves 3.5× higher producer throughput
 with the same memory budget.
 
-A fully lock-free queue was considered for the buffer-exchange step but
-rejected — see [`docs/ENGINEERING.md`](docs/ENGINEERING.md).
+Two independent spinlocks guard the pending and free queues separately,
+so the writer returning buffers to the free pool no longer contends with
+producers submitting new ones. A fully lock-free queue was also
+considered but rejected — see [`docs/ENGINEERING.md`](docs/ENGINEERING.md).
 
 ---
 
 ## API
 
+`AsyncLogger` is a regular object — create one instance per log
+destination, pass it to any thread via reference.
+
 ```cpp
 #include "AsyncLogger.h"
 
-int main() {
-    AsyncLogger::init(/*bufSize=*/128 * 1024,
-                      /*logDir=*/"./log");
+// bufSize: per-TLS buffer in bytes; queueSize: pool depth; logDir: output path
+AsyncLogger logger(128 * 1024, 32, "./log");
 
-    LOG(INFO)    << "starting up, version=" << version;
-    LOG(WARNING) << "queue depth high: " << depth;
-    LOG(ERROR)   << "failed to open "
-                 << path << ": "
-                 << strerror(errno);
+// Logging — use the macro, pass the logger by reference
+LOG_TO(logger, INFO)    << "starting up, version=" << version;
+LOG_TO(logger, WARNING) << "queue depth high: " << depth;
+LOG_TO(logger, ERROR)   << "failed to open " << path;
 
-    // shutdown automatic at process exit
-}
+// Optional: flush current thread's TLS buffer to the backend
+// (non-blocking; data reaches disk within the next writer cycle)
+logger.flush();
+
+// Graceful shutdown — drains all pending buffers before returning
+logger.shutdown();
 ```
+
+Convenience aliases: `LOG_INFO_TO`, `LOG_WARN_TO`, `LOG_ERROR_TO`, `LOG_DEBUG_TO`.
 
 Levels: `INFO`, `DEBUG`, `WARNING`, `ERROR`, `FATAL`.
 
@@ -170,8 +180,8 @@ Levels: `INFO`, `DEBUG`, `WARNING`, `ERROR`, `FATAL`.
 
 ### Requirements
 
-- CMake 3.14+
-- C++17 compiler (GCC 9+ / Clang 10+)
+- CMake 3.20+
+- C++20 compiler (GCC 11+ / Clang 14+)
 - Linux
 
 ### Build & test
@@ -219,14 +229,15 @@ export CAELAN_LOG_DIR=/var/log/myapp
 
 ## Known Limitations
 
-- Backend uses 100 µs polling rather than condition-variable signaling
-- Buffer pool size is fixed at compile time
+- Buffer pool size is fixed at construction time
   (drop-on-full when exceeded; drop counter makes this observable)
 - File rolling is size-based only
   (no time-based rotation)
 - Linux-only
   (`POSIX write()`, `clock_gettime`, `O_APPEND`)
 - No structured logging — plain text only
+- `flush()` is non-blocking: guarantees submission to the backend queue
+  but not persistence to disk; use `shutdown()` for a full drain
 
 ---
 

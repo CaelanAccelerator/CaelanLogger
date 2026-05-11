@@ -20,7 +20,7 @@ target_include_directories(caelogger PUBLIC
 )
 
 # If you use snprintf/strlen etc
-target_compile_features(caelogger PUBLIC cxx_std_17)
+target_compile_features(caelogger PUBLIC cxx_std_20)
 
 if (MSVC)
     target_compile_definitions(caelogger PRIVATE _CRT_SECURE_NO_WARNINGS)
@@ -39,7 +39,7 @@ target_include_directories(caelogger_testing PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
 
-target_compile_features(caelogger_testing PUBLIC cxx_std_17)
+target_compile_features(caelogger_testing PUBLIC cxx_std_20)
 target_compile_definitions(caelogger_testing PUBLIC CAELOGGER_TESTING)
 
 if (MSVC)
