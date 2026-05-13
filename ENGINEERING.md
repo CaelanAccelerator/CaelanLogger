@@ -1,14 +1,14 @@
 ﻿# CaelanLogger
 
-A high-throughput multi-threaded asynchronous logger in C++17, achieving
+A high-throughput multi-threaded asynchronous logger in C++20, achieving
 **~5.4M lines/sec under 8-producer contention (~13.8× a mutex-based baseline,
 ~3.5× spdlog async)** across 100 benchmark runs. Designed around thread-local
-buffering, buffer-pool pointer exchange, and a single backend writer thread
+buffering, two ring-buffer queues of buffer-pool pointers, and a single backend writer thread
 with batched I/O.
 
-**Status**: Stable. Core functionality complete and validated under
+**Status**: Core functionality complete and validated under
 AddressSanitizer + ThreadSanitizer + UndefinedBehaviorSanitizer.
-Future work (drop counter persistence formats, dynamic capacity) tracked
+Future work (dynamic capacity, multiple backend consumers such as remote sender, console displayer, lock-free queues design) tracked
 separately.
 
 ---
@@ -16,8 +16,8 @@ separately.
 ## Highlights
 
 - **Lock-free fast path**: per-thread buffering + atomic-flag hint means
-  most `LOG()` calls touch no shared state
-- **RAII-guarded spinlock at handoff**: critical section is ~50 cycles
+  most `LOG_TO(AsyncLogger logger)` calls touch no shared state
+- **RAII-guarded spinlock at handoff**: critical section is small
   (a few index updates + pointer swap)
 - **Bounded buffer pool with drop-on-full**: producers never block;
   every dropped log is counted, and `logged + dropped == attempted` is
@@ -43,14 +43,16 @@ identical compute workload; checksums match across all runs.
 
 ### Configuration
 
-```cppstruct BenchConfig {
-int threads          = 8;
-int linesPerThread   = 50'000;        // 400,000 total log calls
-int workRounds       = 512;           // deterministic compute per line
-int handoffEvery     = 256;           // manual handoff cadence (producer-side)
-std::size_t asyncBufferSize = 128 * 1024;  // 128 KB per TLS buffer
-std::string payload  = std::string(128, 'X');
+```cpp
+struct BenchConfig {
+    int threads                 = 8;
+    int linesPerThread          = 50'000;       // 400,000 total log calls
+    int workRounds              = 512;          // deterministic compute per line
+    int handoffEvery            = 256;          // manual handoff cadence (producer-side)
+    std::size_t asyncBufferSize = 128 * 1024;  // 128 KB per TLS buffer
+    std::string payload         = std::string(128, 'X');
 };
+```
 
 ### Results (100 runs)
 
@@ -75,11 +77,14 @@ std::string payload  = std::string(128, 'X');
 | Persisted lines/sec             | 5.21 M       | 5.54 M      | 5.58 M      |
 | Drop rate %                     | 1.12%        | 7.0%        | 13.4%       |
 
-#### Drop-rate distribution across 100 runs0%        : 64/100   (no drops at all)
-0-5%      : 28/100   (light pressure)
-5-10%     : 6/100    (moderate burst)
+#### Drop-rate distribution across 100 runs
 
-10%      : 2/100    (heavy backend stall, max observed: 13.4%)
+```
+0%        : 64/100   (no drops at all)
+0–5%      : 28/100   (light pressure)
+5–10%     : 6/100    (moderate burst)
+>10%      : 2/100    (heavy backend stall, max observed: 13.4%)
+```
 
 
 **Invariant verification**: `logged + dropped == attempted` holds for
@@ -110,16 +115,20 @@ for — no logs are silently lost.
 > Maximum producer-side throughput under bounded-buffer drop policy,
 > with `logged + dropped == attempted` verified per run.
 
-The four metrics that matter:attempted log calls / sec    -> producer-side throughput (the headline number)
-persisted log lines  / sec   -> what actually reaches disk
-drop rate                    -> % attempted that didn't fit in the buffer pool
-logged + dropped invariant   -> correctness check on accounting
+The four metrics that matter:
+
+```
+attempted log calls / sec   ->  producer-side throughput (the headline number)
+persisted log lines  / sec  ->  what actually reaches disk
+drop rate                   ->  % attempted that didn't fit in the buffer pool
+logged + dropped invariant  ->  correctness check on accounting
+```
 
 ---
 
 ## Concurrency Design
 
-Logging can destroy performance if every `LOG()` call touches shared state.
+Logging can destroy performance if every `LOG_TO(AsyncLogger logger)` call touches shared state.
 This project keeps the hot path local and only synchronizes at buffer handoff.
 
 ### Key idea: exchange buffer pointers, not messages
@@ -128,10 +137,10 @@ This project keeps the hot path local and only synchronizes at buffer handoff.
 
 - Each thread owns a thread-local buffer (TLS) and appends formatted log
   lines locally
-- Most `LOG()` calls do not contend on a global lock
+- Most `LOG_TO(AsyncLogger logger)` calls do not contend on a global lock
 - When the TLS buffer reaches a threshold, the thread performs a handoff:
   - enqueue the full buffer pointer into the backend's pending queue
-  - acquire a fresh buffer pointer from a free pool
+  - acquire a fresh buffer pointer from a free queue
   - continue logging immediately
 
 #### Backend path (cold path)
@@ -148,7 +157,7 @@ Synchronization is concentrated at the buffer exchange step:
 - moving buffer pointers between producer and backend
 - updating ring indices / availability flags
 
-The critical section is ~50 cycles (a few index updates and a pointer swap).
+The critical section is small (a few index updates and a pointer swap).
 A spinlock outperforms a mutex here because contention is rare (every Nth
 log line, not every line) and the section is too short to justify a syscall.
 A fully lock-free queue was considered but rejected: ABA-safe variants add
@@ -161,9 +170,10 @@ critical section is.
 acquiring the spinlock. It indicates "free pool is likely non-empty" but
 authoritative checks always happen under the lock.
 
-A subtle but important rule:freeAvailable_ can optimize acquiring a replacement buffer.
-freeAvailable_ should not prevent submitting an existing buffer
-during forced flush.
+A subtle but important rule:
+
+- `freeAvailable_` can optimize acquiring a replacement buffer.
+- `freeAvailable_` should not prevent submitting an existing buffer during a forced flush.
 
 Mixing these two roles caused a real bug — submission could be skipped
 during shutdown because the flag was false, even though pendingQue still
@@ -384,11 +394,8 @@ file logging on Linux — not that it is a general spdlog replacement.
 
 ## Known Limitations
 
-- **Backend uses 100 µs polling** rather than condition-variable signaling.
-  Trades up to ~100 µs worst-case latency for simpler shutdown semantics
-  and bounded scheduler wakeup behavior.
-- **Buffer pool size is fixed at compile time** (`QUEUE_SIZE`). Under
-  sustained burst load exceeding pool capacity, logs are dropped
+- **Buffer pool size is fixed at construction time** (`queueSize` parameter).
+  Under sustained burst load exceeding pool capacity, logs are dropped
   (drop-on-full). The drop counter makes this observable.
 - **File rolling is size-based only** (no time-based rotation).
 - **Linux-only**: uses `clock_gettime`, POSIX `write()`, and `O_APPEND`
@@ -403,45 +410,74 @@ file logging on Linux — not that it is a general spdlog replacement.
 
 ### Requirements
 
-- CMake 3.14+
-- C++17 compiler (GCC 9+ / Clang 10+)
+- CMake 3.20+
+- C++20 compiler (GCC 11+ / Clang 14+)
 - Linux
 
 ### Build
 
-```bashcmake -B build -DCMAKE_BUILD_TYPE=Release
+```bash
+cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j
+```
 
 ### Sanitizer builds
 
-```bashASan + UBSan (catches leaks, UAF, double-free, undefined behavior)
+#### ASan + UBSan (catches leaks, UAF, double-free, undefined behavior)
+
+```bash
 cmake -B build-asan -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -g -O1"
-cmake --build build-asan -jTSan (catches data races; mutually exclusive with ASan)
+cmake --build build-asan -j
+```
+
+#### TSan (catches data races; mutually exclusive with ASan)
+
+```bash
 cmake -B build-tsan -DCMAKE_CXX_FLAGS="-fsanitize=thread -g -O1"
 cmake --build build-tsan -j
+```
 
 ### Run tests
 
-```bashcd build && ctest --output-on-failure
+```bash
+cd build && ctest --output-on-failure
+```
 
 ### Run benchmark
 
-```bash./build/caelogger_bench
+```bash
+./build/caelogger_bench
+```
 
 ### Configure log directory
 
-```bashexport CAELAN_LOG_DIR=/var/log/myapp
+```bash
+export CAELAN_LOG_DIR=/var/log/myapp
 ./your_app
+```
 
 ---
 
 ## API
 
-```cpp#include "AsyncLogger.h"int main() {
-AsyncLogger::init(/bufSize=/128 * 1024, /logDir=/"./log");LOG(INFO) << "starting up, version=" << version;
-LOG(WARNING) << "queue depth high: " << depth;
-LOG(ERROR) << "failed to open " << path << ": " << strerror(errno);// shutdown automatic at process exit
-}
+```cpp
+#include "AsyncLogger.h"
+
+// bufSize: per-TLS buffer in bytes; queueSize: pool depth; logDir: output path
+AsyncLogger logger(128 * 1024, 32, "./log");
+
+LOG_TO(logger, INFO)    << "starting up, version=" << version;
+LOG_TO(logger, WARNING) << "queue depth high: " << depth;
+LOG_TO(logger, ERROR)   << "failed to open " << path << ": " << strerror(errno);
+
+// Optional: flush current thread's TLS buffer to the backend
+logger.flush();
+
+// Graceful shutdown — drains all pending buffers before returning
+logger.shutdown();
+```
+
+Convenience aliases: `LOG_INFO_TO`, `LOG_WARN_TO`, `LOG_ERROR_TO`, `LOG_DEBUG_TO`.
 
 Levels: `INFO`, `DEBUG`, `WARNING`, `ERROR`, `FATAL`.
 

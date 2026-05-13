@@ -11,7 +11,7 @@ ThreadSanitizer + UndefinedBehaviorSanitizer.
 
 For implementation details, lifecycle bug post-mortems, full benchmark
 methodology, and design notes, see
-[`docs/ENGINEERING.md`](docs/ENGINEERING.md).
+[`ENGINEERING.md`](ENGINEERING.md).
 
 ---
 
@@ -103,7 +103,7 @@ struct BenchConfig {
 > producers; this benchmark uses the default `overrun_oldest` to compare
 > apples-to-apples with Caelan's non-blocking semantics.
 >
-> See [`docs/ENGINEERING.md`](docs/ENGINEERING.md)
+> See [`ENGINEERING.md`](ENGINEERING.md)
 > for full methodology.
 
 ---
@@ -142,7 +142,7 @@ with the same memory budget.
 Two independent spinlocks guard the pending and free queues separately,
 so the writer returning buffers to the free pool no longer contends with
 producers submitting new ones. A fully lock-free queue was also
-considered but rejected — see [`docs/ENGINEERING.md`](docs/ENGINEERING.md).
+considered but rejected — see [`ENGINEERING.md`](ENGINEERING.md).
 
 ---
 
