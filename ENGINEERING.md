@@ -201,58 +201,46 @@ leave the recovered buffer outside the free/pending/TLS state machine.
 ## Engineering Notes
 
 The buffer-pool design went through several iterations to reach correctness.
-**AddressSanitizer caught four classes of lifecycle bugs that ThreadSanitizer
+**AddressSanitizer caught classes of lifecycle bugs that ThreadSanitizer
 alone missed** — the original CI had only TSan, so these slipped through
 until ASan was added and a dedicated lifecycle test was written.
 
-### 1. Destructor leak
+### 1–3. Destructor leak → double-free → `restart()` corruption
 
-`BackendLogger` allocated buffers in the constructor but never released
-them in the destructor — the original dtor only joined the writer thread.
+The first thing ASAN caught was a destructor leak: I forgot to release
+buffer pointers in `BackendLogger`'s destructor — the original dtor only
+joined the writer thread and returned. This was hidden during normal testing
+because `AsyncLogger` was a singleton that exited with the process, letting
+the OS reclaim everything. It only surfaced once I wrote an explicit
+lifecycle test: `{ BackendLogger bl(...); bl.start(); bl.stop(); }`.
 
-This was hidden by the singleton lifetime in production tests
-(`AsyncLogger` exits with the process, OS reclaims memory). Surfaced only
-by an explicit `{ BackendLogger bl(...); bl.start(); bl.stop(); }` lifecycle
-test. **Lesson: singletons hide dtor paths from standard tests.**
+My first fix was a delete loop over `[0, QUEUE_SIZE)`. That made the leak
+disappear, but introduced a new problem: double-free. I added some `cout`
+debug points around every `delete` call and found that `freeQue` was
+polluted with duplicated buffer pointers — the same pointer appeared in
+two slots.
 
-### 2. Ring-buffer cross-array double-free
+The root cause was `restart()`. It was originally written for GTest: since
+GoogleTest runs all tests in one process, the singleton persisted across
+test cases, so I needed a way to reset it. But `restart()` only updated
+`freeQueSize` — it never reset `pendingQue` indices or `freeQue`'s head.
+After a restart, the same buffer pointer could occupy two slots
+simultaneously. The delete loop then encountered it twice → double-free,
+and logs were silently lost.
 
-The first dtor fix iterated `[0, QUEUE_SIZE)`, but stale slots in
-`pendingQue` could still hold pointers to buffers that had since been
-re-acquired in `freeQue`. Iterating the full array caused cross-array
-double-delete and `heap-use-after-free` under ASan.
+Once I moved away from the singleton pattern (more on that below),
+`restart()` became unnecessary and was deleted. The delete loop was fixed
+to iterate only the active range `[front, front + size)` for each ring
+buffer rather than the full physical array.
 
-Fixed by iterating only the active range `[front, front + size)` for each
-ring buffer.
-
-### 3. Incomplete `restart()` reset
-
-Only `freeQueBack` and `freeQueSize` were reset; `freeQueFront`, plus all
-`pendingQue` indices, were not. After restart, ownership tracking was
-corrupted — the same buffer could appear in two slots, or a TLS-held
-buffer could be silently leaked when `restart()` rebuilt the free queue
-as if all buffers were available.
-
-Fixed by:
-- resetting all six index/size fields
-- compacting the live free buffers to `[0, size)` and nulling the rest
-- only running `restart()` after `stop()` and after all TLS buffers have
-  been accounted for
-
-### 4. Buffer-pool exhaustion liveness bug
-
-When the free pool was empty, `cur_buffer` was set to `nullptr` with no
-recovery path. Because the architecture is single-direction polling, the
-backend cannot notify producers when buffers free up — the producer would
-silently drop all subsequent logs.
-
-Fixed by adding a `get_free_buffer()` interface and a recovery branch in
-`handoff()` that runs when `cur_buffer == nullptr`. This preserves the
-single-direction ownership flow while letting producers recover.
+**Lesson:** singletons hide destructor paths from standard tests. Partial
+state resets are also dangerous — updating `size` without touching `head`
+and `tail` creates an inconsistency that ownership tracking will
+eventually trip over.
 
 ### Common root cause
 
-> Ownership state is distributed across `front` / `back` / `size` indices.
+> Ownership state is distributed across `head` / `tail` / `size` indices.
 > Every entry point — dtor, restart, acquire, release — must maintain the
 > full invariant. Any partial update breaks ownership tracking, which then
 > manifests as **leak**, **UAF**, or **liveness loss** depending on which
@@ -263,94 +251,100 @@ single-direction ownership flow while letting producers recover.
 A subtle C++ shadowing bug in `LogStream::~LogStream()`: assigning
 `target = nullptr` modified the *constructor parameter* rather than the
 *member variable*, so the destructor could count the same dropped log
-twice. Fixed by using `this->target_ = nullptr`.
+twice. 
+
+I fixed it by improving my naming methods to use a `-` after very class member varibale
 
 This was caught by the integration tests, which now verify
 `logged + dropped == attempted` directly by scanning the log directory
 and summing `dropped: N` delta records.
 
+### 4. Buffer-pool exhaustion liveness bug
+
+When the free pool ran dry, I set `cur_buffer` to `nullptr` but added no
+recovery path. I didn't notice at first because the pool rarely emptied in
+normal runs — it only showed up under stress. Once a producer's buffer was
+gone, it would silently drop every subsequent log call, not because the
+pool stayed empty, but because the producer never tried to reclaim a buffer
+again. The architecture is single-direction: the backend cannot notify
+producers when buffers become available, so recovery has to be
+producer-driven.
+
+I fied it by adding a `get_free_buffer()` interface and a recovery branch in
+`handoff()` that runs when `cur_buffer == nullptr`. One subtlety: the
+recovered buffer has to go back into `ThreadLogger::curBuffer_`, not into a
+`LogStream` local — `LogStream` is a temporary, and anything stored there
+falls outside the free/pending/TLS ownership state machine the moment the
+expression ends.
+
 ### 5. Writer-thread lost wakeup on stop
 
-The writer loop used `pendingQueSize_.wait(0)` (block while zero) and
-`stop()` called `pendingQueSize_.notify_all()` after setting
-`running_ = false`. There is a race window: the writer reads
-`running_ = true`, evaluates its loop condition, then `stop()` sets
-`running_ = false` and fires `notify_all()` — before the writer enters
-`wait()`. The notification is lost; the writer blocks forever;
-`writer_.join()` deadlocks.
+I originally used `pendingQueSize_.wait(0)` to block the writer until work
+arrived. The shutdown sequence called `pendingQueSize_.notify_all()` after
+setting `running_ = false`. The bug was a classic lost-wakeup race: the
+writer could read `running_ = true`, decide to keep looping, and then
+`stop()` could fire its `notify_all()` in the window before the writer
+entered `wait()`. The notification was lost; the writer blocked forever;
+`writer_.join()` deadlocked.
 
 `atomic::wait` only supports a single-value predicate and cannot
-atomically check a compound condition. Fixed by replacing the atomic
-wait with `std::condition_variable::wait(lock, pred)`, whose predicate
-covers both "has pending work" and "stopping". The mutex held by
-`cv_.wait` guarantees that `stop()`'s state change and `notify_all()`
-are not visible to the writer until after it has registered the wait.
+atomically check a compound condition. The fix was replacing it with
+`std::condition_variable::wait(lock, pred)`, whose predicate covers both
+"has pending work" and "stopping". The mutex held by `cv_.wait` guarantees
+that `stop()`'s state write and `notify_all()` cannot interleave with the
+writer registering its wait.
 
-### 6. Temporary-object destructor corrupts buffer ownership in `tls()`
+### 6–7. `freeQue` phantom pointer → `emplace` temporary destructor
+
+After fixing bug 5, ASAN still reported a `heap-use-after-free` in the
+destructor. I added `cout` in `BackendLogger`'s destructor to print every
+pointer address and the total count — and found more pointers than
+expected. The pool was supposed to account for exactly `queueSize_`
+buffers, but the destructor was seeing more.
+
+I went through all the queue update code and every buffer pointer swap —
+`submitAndAcquire`, `write`, `get_free_buffer` — and couldn't find
+anything wrong. The accounting looked correct everywhere I looked.
+
+I then started suspecting the `ThreadLogger` registration in `AsyncLogger`.
+After reading up on how `emplace` works, I found the problem: I was calling
 
 ```cpp
-// BEFORE — creates a temporary ThreadLogger, then moves it
 map.emplace(&backend_, ThreadLogger(bufSize_, &backend_));
 ```
 
-`map.emplace` constructs a temporary `ThreadLogger`, copies/moves it
-into the map, then destructs the temporary. The temporary's destructor
-ran with a non-null `curBuffer_`, triggering `submitAndAcquire` (which
-submitted the buffer to pending and acquired a new one from the free
-pool) followed by `delete curBuffer_` on the newly borrowed pool buffer.
-This gave the same buffer two owners simultaneously: the pool (via the
-stale `freeQue_` slot that was never cleared) and the live map entry.
+`emplace` with a pre-constructed object creates a temporary, moves it into
+the map, then destructs the temporary. The temporary's destructor ran with
+a non-null `curBuffer_` — which meant `submitAndAcquire` fired an extra
+time, putting a dangling pointer into the pending queue. That phantom
+pointer was the extra one I kept seeing in the destructor's count.
 
-Fixed by `map.try_emplace(&backend_, bufSize_, &backend_)`, which
-forwards arguments directly to the value constructor and never
-creates a temporary. No destructor fires for a partially-constructed
-entry.
+Fixed by switching to `map.try_emplace(&backend_, bufSize_, &backend_)`,
+which forwards arguments directly to the value constructor in-place and
+never creates a temporary. No destructor fires, no phantom pointer, counts
+match exactly.
 
-### 7. freeQue stale-slot double-free
+### 8. TLS `ThreadLogger` outlives `AsyncLogger` (stack-use-after-return in CI)
 
-Taking a buffer from `freeQue_` advanced `head` but left the vacated
-slot with the old pointer. After the ring completed a full cycle
-(`freeQueSize_ == queueSize_`), the destructor's iteration
-`[head, head + freeQueSize_)` covered all 32 physical positions.
-The slot at `head - 1 (mod 32)` — the stale slot — held the same
-pointer as the live slot where the writer had since returned that
-buffer. The destructor encountered the pointer twice and deleted it
-twice → `heap-use-after-free` under ASan.
+I originally stored the TLS map as a function-local `thread_local` inside
+`tls()`. It worked fine when `AsyncLogger` was a long-lived global. But
+when a test created `AsyncLogger logger` as a stack variable, the
+destructor ran at function return — while the TLS map, and the
+`ThreadLogger` inside it pointing at `logger.backend_`, lived until thread
+exit. At program shutdown, the TLS map destructor fired `~ThreadLogger()`,
+which called `submitAndAcquire` on a long-dead stack frame →
+`stack-use-after-return` under ASan. It only showed up in CI because CI
+ran with `abort_on_error=1`; locally the sanitizer passed silently.
 
-Root cause was compounded by bug 6: the spurious temporary destructor
-called `delete curBuffer_` on a pool buffer. This removed the buffer
-from existence while its pointer remained in the stale slot. The live
-slot (where the buffer had been returned by the writer) and the stale
-slot both fell inside the full-ring iteration range → double-free.
-
-Both causes are fixed together: `try_emplace` eliminates the spurious
-destructor (bug 6), and removing `delete curBuffer_` from
-`~ThreadLogger` ensures that a borrowed pool buffer is never freed by
-the wrong owner.
-
-**Lesson:** ring-buffer slots must be nulled when consumed. A non-null
-stale slot is indistinguishable from a live slot when the ring is full,
-making any full-range iteration unsafe.
-
-### 8. TLS ThreadLogger outlives AsyncLogger (stack-use-after-return in CI)
-
-`tls()` stored the TLS map as a function-local `thread_local`. When
-`AsyncLogger logger` was a stack variable inside a test function, its
-destructor ran when the function returned. But the TLS map — and the
-`ThreadLogger` pointing to `logger.backend_` — lives until thread exit.
-At program shutdown, the TLS map destructor called `~ThreadLogger()`
-which called `submitAndAcquire` on the long-dead stack frame →
-`stack-use-after-return` under ASan.
-
-Fixed by factoring the TLS map into a named static helper `tlsMap()` so
-it is accessible outside of `tls()`. `~AsyncLogger()` now erases its
-backend's entry from `tlsMap()` before `backend_.stop()` — while the
-backend is still alive — so `~ThreadLogger()` runs safely during erase
-rather than at thread exit on a dangling pointer.
+Fixed by factoring the map into a named static helper `tlsMap()` so it's
+reachable outside `tls()`. `~AsyncLogger()` now erases its backend's entry
+from `tlsMap()` before `backend_.stop()` — while the backend is still
+alive — so `~ThreadLogger()` runs safely during erase rather than at
+thread exit on a dangling pointer.
 
 **Lesson:** thread-local storage outlives any object whose address it
-holds. If a TLS entry references a stack-allocated object, the owner
-must explicitly invalidate or remove that entry in its destructor.
+holds. If a TLS entry references a stack-allocated object, the owner must
+explicitly remove that entry in its destructor.
 
 ---
 
