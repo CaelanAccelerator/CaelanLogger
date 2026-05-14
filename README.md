@@ -18,7 +18,7 @@ methodology, and design notes, see
 ## Highlights
 
 - **Lock-free fast path**: per-thread buffering + atomic-flag hint means
-  most `LOG()` calls touch no shared state
+  most `LOG_TO()` calls touch no shared state
 - **Two independent spinlocks**: pending queue and free queue each have
   their own lock — writers returning buffers no longer block producers
   submitting new ones
@@ -110,7 +110,7 @@ struct BenchConfig {
 
 ## Concurrency Design
 
-Logging can destroy performance if every `LOG()` call touches shared state.
+Logging can destroy performance if every `LOG_TO()` call touches shared state.
 This project keeps the hot path local and only synchronizes at buffer handoff.
 
 ### Key idea: exchange buffer pointers, not messages
