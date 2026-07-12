@@ -1,6 +1,7 @@
 #pragma once
 #include <string>
 #include <cstring>
+#include <memory>
 #include <Buffer.h>
 #include <algorithm>
 
@@ -15,7 +16,7 @@ public:
 
 private:
 	unsigned long long lostLogs{0};
-	Buffer *curBuffer_;
+	std::unique_ptr<Buffer> curBuffer_;
 	BackendLogger *backendLogger_;
 	friend class LogStream;
 	friend class AsyncLogger;

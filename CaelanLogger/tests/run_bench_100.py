@@ -71,21 +71,49 @@ def parse_section(output: str, section_name: str) -> dict:
     }
 
 
+def parse_latency_ns(output: str) -> dict:
+    out = {}
+
+    m = re.search(
+        r"\[AsyncLogger per-call latency \(ns\)\]\s+"
+        r"p50=(\d+)\s+p95=(\d+)\s+p99=(\d+)\s+max=(\d+)",
+        output,
+    )
+    if m:
+        out["async_lat_p50_ns"] = int(m.group(1))
+        out["async_lat_p95_ns"] = int(m.group(2))
+        out["async_lat_p99_ns"] = int(m.group(3))
+        out["async_lat_max_ns"] = int(m.group(4))
+
+    m = re.search(
+        r"\[spdlog per-call latency \(ns\)\]\s+"
+        r"p50=(\d+)\s+p95=(\d+)\s+p99=(\d+)\s+max=(\d+)",
+        output,
+    )
+    if m:
+        out["spd_lat_p50_ns"] = int(m.group(1))
+        out["spd_lat_p95_ns"] = int(m.group(2))
+        out["spd_lat_p99_ns"] = int(m.group(3))
+        out["spd_lat_max_ns"] = int(m.group(4))
+
+    return out
+
+
 def parse_validation(output: str) -> dict:
     out = {}
 
     # format: "sync  logged+dropped = X / Y" (extra spaces tolerated)
-    m = re.search(r"sync\s+logged\+dropped\s*=\s*([0-9]+)\s*/\s*([0-9]+)", output)
+    m = re.search(r"\bsync\s+logged\+dropped\s*=\s*([0-9]+)\s*/\s*([0-9]+)", output)
     if m:
         out["sync_valid_sum"] = int(m.group(1))
         out["sync_valid_expected"] = int(m.group(2))
 
-    m = re.search(r"async\s+logged\+dropped\s*=\s*([0-9]+)\s*/\s*([0-9]+)", output)
+    m = re.search(r"\basync\s+logged\+dropped\s*=\s*([0-9]+)\s*/\s*([0-9]+)", output)
     if m:
         out["async_valid_sum"] = int(m.group(1))
         out["async_valid_expected"] = int(m.group(2))
 
-    m = re.search(r"spd\s+logged\+dropped\s*=\s*([0-9]+)\s*/\s*([0-9]+)", output)
+    m = re.search(r"\bspd\s+logged\+dropped\s*=\s*([0-9]+)\s*/\s*([0-9]+)", output)
     if m:
         out["spd_valid_sum"] = int(m.group(1))
         out["spd_valid_expected"] = int(m.group(2))
@@ -97,6 +125,7 @@ def flatten_result(run_id: int, returncode: int, output: str) -> dict:
     sync   = parse_section(output, "SyncLogger (mutex + write)")
     async_ = parse_section(output, "AsyncLogger (CaelanLogger)")
     spd    = parse_section(output, "spdlog async (1 thread, overrun_oldest)")
+    lat    = parse_latency_ns(output)
     valid  = parse_validation(output)
 
     row = {
@@ -109,6 +138,8 @@ def flatten_result(run_id: int, returncode: int, output: str) -> dict:
 
     for k, v in async_.items():
         row[f"async_{k}"] = v
+
+    row.update(lat)
 
     for k, v in spd.items():
         row[f"spd_{k}"] = v
@@ -209,10 +240,12 @@ def main():
             f"  rc={p.returncode} "
             f"async: logged={row.get('async_logged')} "
             f"dropped={row.get('async_dropped')} "
-            f"e2e={row.get('async_end_to_end_time_ms')}ms | "
+            f"e2e={row.get('async_end_to_end_time_ms')}ms "
+            f"lat_p99={row.get('async_lat_p99_ns')}ns | "
             f"spd: logged={row.get('spd_logged')} "
             f"dropped={row.get('spd_dropped')} "
-            f"e2e={row.get('spd_end_to_end_time_ms')}ms"
+            f"e2e={row.get('spd_end_to_end_time_ms')}ms "
+            f"lat_p99={row.get('spd_lat_p99_ns')}ns"
         )
 
     # Stable column order.
@@ -241,6 +274,10 @@ def main():
         "async_producer_lines_sec",
         "async_end_to_end_lines_sec",
         "async_checksum",
+        "async_lat_p50_ns",
+        "async_lat_p95_ns",
+        "async_lat_p99_ns",
+        "async_lat_max_ns",
 
         "sync_valid_sum",
         "sync_valid_expected",
@@ -257,6 +294,10 @@ def main():
         "spd_producer_lines_sec",
         "spd_end_to_end_lines_sec",
         "spd_checksum",
+        "spd_lat_p50_ns",
+        "spd_lat_p95_ns",
+        "spd_lat_p99_ns",
+        "spd_lat_max_ns",
 
         "spd_valid_sum",
         "spd_valid_expected",

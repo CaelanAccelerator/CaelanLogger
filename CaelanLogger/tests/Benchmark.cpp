@@ -237,6 +237,7 @@ static BenchResult run_async(const BenchConfig &cfg, const fs::path &dir, const 
 
     std::vector<std::thread> threads;
     std::vector<std::uint64_t> checksums(cfg.threads, 0);
+    std::vector<std::vector<long long>> threadLats(cfg.threads);
 
     auto start = std::chrono::steady_clock::now();
 
@@ -245,15 +246,20 @@ static BenchResult run_async(const BenchConfig &cfg, const fs::path &dir, const 
         threads.emplace_back([&, t]
                              {
             std::uint64_t local = 0;
+            threadLats[t].reserve(cfg.linesPerThread);
 
             for (int i = 0; i < cfg.linesPerThread; ++i)
             {
                 local ^= do_work(cfg.workRounds, static_cast<std::uint64_t>(t) << 32 | static_cast<std::uint64_t>(i));
 
+                auto t0 = std::chrono::steady_clock::now();
                 LOG_TO(logger, INFO) << token
                                      << " T=" << t
                                      << " I=" << i
                                      << " " << cfg.payload;
+                auto t1 = std::chrono::steady_clock::now();
+                threadLats[t].push_back(
+                    std::chrono::duration_cast<std::chrono::nanoseconds>(t1 - t0).count());
             }
 
             logger.tls().handoff(true);
@@ -265,6 +271,21 @@ static BenchResult run_async(const BenchConfig &cfg, const fs::path &dir, const 
         th.join();
 
     auto producersDone = std::chrono::steady_clock::now();
+
+    {
+        std::vector<long long> allLat;
+        allLat.reserve(static_cast<std::size_t>(cfg.threads) * cfg.linesPerThread);
+        for (auto &v : threadLats)
+            allLat.insert(allLat.end(), v.begin(), v.end());
+        std::sort(allLat.begin(), allLat.end());
+
+        auto pct = [&](double p) {
+            return allLat[static_cast<std::size_t>(p / 100.0 * (allLat.size() - 1))];
+        };
+        std::cout << "\n[AsyncLogger per-call latency (ns)]\n"
+                  << "  p50=" << pct(50) << "  p95=" << pct(95)
+                  << "  p99=" << pct(99) << "  max=" << allLat.back() << "\n";
+    }
 
     logger.shutdown();
 
@@ -304,6 +325,7 @@ static BenchResult run_spdlog_async(const BenchConfig &cfg, const fs::path &dir,
 
     std::vector<std::thread> threads;
     std::vector<std::uint64_t> checksums(cfg.threads, 0);
+    std::vector<std::vector<long long>> threadLats(cfg.threads);
 
     auto start = std::chrono::steady_clock::now();
 
@@ -312,11 +334,18 @@ static BenchResult run_spdlog_async(const BenchConfig &cfg, const fs::path &dir,
         threads.emplace_back([&, t]
                              {
             std::uint64_t local = 0;
+            threadLats[t].reserve(cfg.linesPerThread);
+
             for (int i = 0; i < cfg.linesPerThread; ++i)
             {
                 local ^= do_work(cfg.workRounds,
                     static_cast<std::uint64_t>(t) << 32 | static_cast<std::uint64_t>(i));
+
+                auto t0 = std::chrono::steady_clock::now();
                 logger->info("{} T={} I={} {}", token, t, i, cfg.payload);
+                auto t1 = std::chrono::steady_clock::now();
+                threadLats[t].push_back(
+                    std::chrono::duration_cast<std::chrono::nanoseconds>(t1 - t0).count());
             }
             checksums[t] = local; });
     }
@@ -325,6 +354,21 @@ static BenchResult run_spdlog_async(const BenchConfig &cfg, const fs::path &dir,
         th.join();
 
     auto producersDone = std::chrono::steady_clock::now();
+
+    {
+        std::vector<long long> allLat;
+        allLat.reserve(static_cast<std::size_t>(cfg.threads) * cfg.linesPerThread);
+        for (auto &v : threadLats)
+            allLat.insert(allLat.end(), v.begin(), v.end());
+        std::sort(allLat.begin(), allLat.end());
+
+        auto pct = [&](double p) {
+            return allLat[static_cast<std::size_t>(p / 100.0 * (allLat.size() - 1))];
+        };
+        std::cout << "\n[spdlog per-call latency (ns)]\n"
+                  << "  p50=" << pct(50) << "  p95=" << pct(95)
+                  << "  p99=" << pct(99) << "  max=" << allLat.back() << "\n";
+    }
 
     logger->flush();
     spdlog::drop("bench");

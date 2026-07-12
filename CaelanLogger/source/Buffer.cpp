@@ -1,14 +1,10 @@
 #include "Buffer.h"
 #include <cstring>
 Buffer::Buffer() :capacity(2000), size(0), remaining(capacity) {
-	buffer = new char[capacity];
+	buffer = std::make_unique<char[]>(capacity);
 }
 Buffer::Buffer(size_t capacity) : capacity(capacity), size(0), remaining(capacity) {
-	buffer = new char[capacity];
-}
-Buffer::~Buffer() {
-	delete[] buffer;
-	buffer = nullptr;
+	buffer = std::make_unique<char[]>(capacity);
 }
 bool Buffer::add(const char* src, size_t len) {
 	if (len + size > capacity) return false;

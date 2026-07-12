@@ -1,10 +1,11 @@
 # CaelanLogger
 
 A high-throughput multi-threaded asynchronous logger in C++20, achieving
-**~5.3M lines/sec under 8-producer contention** while preserving 98.2%
-of messages — outperforming both a mutex baseline (14.1×) and spdlog's
-async logger at the same memory budget (3.7× producer throughput,
-15.0× persisted throughput).
+**~4.8M lines/sec under 8-producer contention** while preserving 98.8%
+of messages — outperforming both a mutex baseline (13.3×) and spdlog's
+async logger at the same memory budget (3.6× producer throughput,
+12.7× persisted throughput). Per-call producer latency is also ~6.7×
+lower than spdlog at p50 and ~71× lower at p99 (see below).
 
 **Status**: Stable. Validated under AddressSanitizer +
 ThreadSanitizer + UndefinedBehaviorSanitizer.
@@ -54,34 +55,52 @@ line; checksums match across all runs.
 
 | Logger                        | Producer throughput | Persisted throughput | Drop rate |
 |------------------------------|---------------------|----------------------|------------|
-| SyncLogger (mutex + write)   | 379 K lines/sec     | 379 K lines/sec      | 0%         |
-| spdlog async (overrun_oldest)| 1.46 M lines/sec    | 350 K lines/sec      | 75.8%      |
-| **CaelanLogger (async)**     | **5.33 M lines/sec**| **5.25 M lines/sec** | **0%**     |
+| SyncLogger (mutex + write)   | 362 K lines/sec     | 362 K lines/sec      | 0%         |
+| spdlog async (overrun_oldest)| 1.33 M lines/sec    | 327 K lines/sec      | 74.2%      |
+| **CaelanLogger (async)**     | **4.80 M lines/sec**| **4.17 M lines/sec** | **0%**     |
 
 ### Speedups (median)
 
 | Comparison       | Producer-side | Persisted (actual disk output) |
 |------------------|----------------|--------------------------------|
-| Caelan vs Sync   | 14.1×          | 13.9×                          |
-| Caelan vs spdlog | 3.7×           | **15.0×**                      |
-| spdlog vs Sync   | 3.8×           | 0.92× (slightly slower)        |
+| Caelan vs Sync   | 13.3×          | 11.5×                          |
+| Caelan vs spdlog | 3.6×           | **12.7×**                      |
+| spdlog vs Sync   | 3.7×           | 0.90× (slightly slower)         |
 
 The spdlog comparison is the meaningful one. Both async loggers are
-given the same 4 MB memory budget, but Caelan keeps 98.2% of messages
-(median: 100%) while spdlog (in its default `overrun_oldest` policy)
-silently drops ~76% of them — making spdlog's headline producer
+given the same 4 MB memory budget, but Caelan keeps 98.8% of messages
+on average (median: 100%) while spdlog (in its default `overrun_oldest`
+policy) silently drops ~74% of them — making spdlog's headline producer
 throughput misleading when the goal is to actually persist data.
 
 ### Drop-rate distribution (100 runs)
 
 | Logger         | 0%  | 0–5% | 5–25% | 25–75% | >75% |
 |----------------|-----|------|-------|--------|------|
-| Caelan async   | 52  | 37   | 10    | 1      | 0    |
-| spdlog async   | 0   | 0    | 0     | 100    | 0    |
+| Caelan async   | 54  | 42   | 4     | 0      | 0    |
+| spdlog async   | 0   | 0    | 0     | 70     | 30   |
 
 `logged + dropped == attempted` holds for
 **100/100 Caelan runs** — the bounded-buffer drop policy is correctly
 accounted for.
+
+### Per-call producer latency (median of 100 runs)
+
+Wall-clock time of a single `LOG_TO()` / `logger->info()` call, measured
+on the producer thread (400K samples per run, percentile taken per-run
+then medianed across runs):
+
+| Logger           | p50      | p95       | p99       |
+|------------------|----------|-----------|-----------|
+| **CaelanLogger** | **259 ns** | **384 ns** | **510 ns** |
+| spdlog async     | 1,726 ns | 15,334 ns | 36,244 ns |
+
+Caelan is ~6.7× faster at p50 and ~71× faster at p99. This is the
+direct effect of the design split noted above: spdlog formats the
+message (via `fmt`) synchronously on the caller's thread before
+enqueueing, while Caelan's hot path is a single `memcpy` into a
+thread-local buffer — formatting and I/O both happen later, off the
+producer's critical path, on the dedicated writer thread.
 
 ### Configuration
 

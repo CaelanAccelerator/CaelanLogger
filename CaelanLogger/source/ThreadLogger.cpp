@@ -11,10 +11,7 @@ ThreadLogger::ThreadLogger(size_t sizeBuf, BackendLogger *bl)
 ThreadLogger::~ThreadLogger()
 {
     if (curBuffer_ && backendLogger_)
-        backendLogger_->submitAndAcquire(curBuffer_);
-    delete curBuffer_;
-    curBuffer_ = nullptr;
-    backendLogger_ = nullptr;
+        backendLogger_->submitAndAcquire(std::move(curBuffer_));
 }
 
 void ThreadLogger::handoff(bool force)
@@ -29,5 +26,5 @@ void ThreadLogger::handoff(bool force)
         return;
     }
 
-    backendLogger_->submitAndAcquire(curBuffer_);
+    curBuffer_ = backendLogger_->submitAndAcquire(std::move(curBuffer_));
 }

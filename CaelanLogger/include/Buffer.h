@@ -1,5 +1,6 @@
 #pragma once
 #include <cstddef> // Add this line to ensure std::size_t is declared
+#include <memory>
 using std::size_t;
 
 //property of a buffer
@@ -12,18 +13,17 @@ public:
 	Buffer(size_t);
 	Buffer(const Buffer&) = delete;//to prevent double free after copy construction
 	Buffer& operator=(const Buffer&) = delete;//to prevent double free after copy construction
-	~Buffer();
 	bool add(const char*, size_t);
 	bool add(const char);
 	size_t getSize() { return size; }
 	size_t getCapacity() { return capacity; }
-	char* getBuffer() { return buffer; }	
+	char* getBuffer() { return buffer.get(); }
 	size_t getRemaining() { return remaining; }
 	size_t getLineCount() { return line_count; }
 	void reset();
 	friend class LogStream;
 private:
-	char* buffer;
+	std::unique_ptr<char[]> buffer;
 	size_t size;
 	size_t capacity;
 	size_t remaining;

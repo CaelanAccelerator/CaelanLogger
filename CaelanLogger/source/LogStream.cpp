@@ -6,12 +6,12 @@
 
 LogStream::LogStream(ThreadLogger *target, CaelanLogger::Level level) : target_(target)
 {
-    curBuffer_ = target_ ? target_->curBuffer_ : nullptr;
+    curBuffer_ = target_ ? target_->curBuffer_.get() : nullptr;
 
     if (!curBuffer_)
     {
         target_->handoff();
-        curBuffer_ = target_ ? target_->curBuffer_ : nullptr;
+        curBuffer_ = target_ ? target_->curBuffer_.get() : nullptr;
     }
     if (!curBuffer_)
         return;
@@ -19,7 +19,7 @@ LogStream::LogStream(ThreadLogger *target, CaelanLogger::Level level) : target_(
     if (curBuffer_->getRemaining() < kMaxLineLength)
     {
         target_->handoff();
-        curBuffer_ = target_ ? target_->curBuffer_ : nullptr;
+        curBuffer_ = target_ ? target_->curBuffer_.get() : nullptr;
         if (!curBuffer_ || curBuffer_->getRemaining() < kMaxLineLength) // to
         {
             target_->backendLogger_->record_drop();

@@ -20,9 +20,9 @@ public:
 	void start();
 	void run();
 	void stop();
-	void submitAndAcquire(Buffer *&);
+	std::unique_ptr<Buffer> submitAndAcquire(std::unique_ptr<Buffer>);
 	void write();
-	Buffer *get_free_buffer();
+	std::unique_ptr<Buffer> get_free_buffer();
 	void record_drop();
 
 private:
@@ -32,11 +32,11 @@ private:
 	std::atomic_flag spinlockPen_ = ATOMIC_FLAG_INIT;
 	std::atomic_flag spinlockFree_ = ATOMIC_FLAG_INIT;
 	size_t queueSize_;
-	std::unique_ptr<Buffer *[]> pendingQue_;
+	std::unique_ptr<std::unique_ptr<Buffer>[]> pendingQue_;
 	size_t pendingQueHead_{0};
 	size_t pendingQueTail_{0};
 	std::atomic<size_t> pendingQueSize_{0};
-	std::unique_ptr<Buffer *[]> freeQue_;
+	std::unique_ptr<std::unique_ptr<Buffer>[]> freeQue_;
 	size_t freeQueHead_{0};
 	size_t freeQueTail_{0};
 	size_t freeQueSize_{0};
