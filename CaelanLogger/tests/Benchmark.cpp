@@ -16,6 +16,8 @@
 #include <unistd.h>
 
 #include "AsyncLogger.h"
+#include "SharedBackend.h"
+#include "UringBackend.h"
 
 #include <spdlog/async.h>
 #include <spdlog/sinks/basic_file_sink.h>
@@ -98,7 +100,7 @@ static std::size_t count_occurrences(const std::string &text, const std::string 
     return count;
 }
 
-// FileUtil::roll() writes dropped delta and resets it.
+// NormalWriter::roll() writes dropped delta and resets it.
 // Therefore, sum all dropped lines in this benchmark run.
 static std::size_t count_dropped_delta(const std::string &text)
 {
@@ -233,7 +235,7 @@ static BenchResult run_async(const BenchConfig &cfg, const fs::path &dir, const 
     const std::size_t attempted =
         static_cast<std::size_t>(cfg.threads) * static_cast<std::size_t>(cfg.linesPerThread);
 
-    AsyncLogger logger(cfg.asyncBufferSize, 32, dir.string());
+    AsyncLogger<SharedBackend> logger(cfg.asyncBufferSize, 32, dir.string());
 
     std::vector<std::thread> threads;
     std::vector<std::uint64_t> checksums(cfg.threads, 0);
@@ -297,9 +299,141 @@ static BenchResult run_async(const BenchConfig &cfg, const fs::path &dir, const 
 
     const std::string logs = read_all_files(dir);
 
+    // CAELAN_LOG_DIR overrides every FileUtil-derived logger's dir_ regardless
+    // of what's passed to its constructor (see pick_log_dir()). Left set, it
+    // would silently hijack every logger constructed later in this process
+    // (e.g. run_async_uring's per-thread dirs) into writing here instead.
+#if defined(_WIN32)
+    _putenv_s("CAELAN_LOG_DIR", "");
+#else
+    unsetenv("CAELAN_LOG_DIR");
+#endif
+
     BenchResult r;
     r.producerMs = std::chrono::duration<double, std::milli>(producersDone - start).count();
     r.endToEndMs = std::chrono::duration<double, std::milli>(end - start).count();
+    r.attempted = attempted;
+    r.logged = count_occurrences(logs, token);
+    r.dropped = count_dropped_delta(logs);
+    r.checksum = checksum;
+    return r;
+}
+
+// UringBackend is shared-nothing: unlike SharedBackend (one backend, one
+// writer thread, all producer threads funnel through an MPSC queue), each
+// thread here owns its own AsyncLogger<UringBackend> end to end, so we
+// expect exactly cfg.threads files (one per thread's own subdirectory),
+// not one shared file. Each thread also calls shutdown() itself before its
+// AsyncLogger goes out of scope, so producer time already includes that
+// thread's own flush - there's no separate "backend catches up" phase like
+// there is for SharedBackend.
+static BenchResult run_async_uring(const BenchConfig &cfg, const fs::path &dir, const std::string &token)
+{
+    reset_dir(dir);
+
+    const std::size_t attempted =
+        static_cast<std::size_t>(cfg.threads) * static_cast<std::size_t>(cfg.linesPerThread);
+
+    std::vector<std::thread> threads;
+    std::vector<std::uint64_t> checksums(cfg.threads, 0);
+    std::vector<std::vector<long long>> threadLats(cfg.threads);
+    std::vector<fs::path> threadDirs(cfg.threads);
+
+    // Each thread gets its own subdirectory: generateFileName()'s counter is
+    // a per-Derived-type static, not per-instance, so concurrent UringBackend
+    // instances racing on it could in principle pick the same filename.
+    // Separate directories sidestep that instead of relying on the race
+    // resolving cleanly.
+    for (int t = 0; t < cfg.threads; ++t)
+        threadDirs[t] = dir / ("thread_" + std::to_string(t));
+
+    // SharedBackend gets 32 buffers TOTAL, shared and dynamically borrowed
+    // across all threads. UringBackend is shared-nothing - each thread's pool
+    // is its own and can't be borrowed from - so to keep the total memory
+    // budget equal (not 8x it), each thread only gets 32 / cfg.threads
+    // buffers of its own, with no cross-thread sharing possible.
+    const int poolCapacityPerThread = 32 / cfg.threads;
+
+    auto start = std::chrono::steady_clock::now();
+
+    for (int t = 0; t < cfg.threads; ++t)
+    {
+        threads.emplace_back([&, t]
+                             {
+            AsyncLogger<UringBackend> logger(cfg.asyncBufferSize, poolCapacityPerThread, threadDirs[t].string());
+
+            std::uint64_t local = 0;
+            threadLats[t].reserve(cfg.linesPerThread);
+
+            for (int i = 0; i < cfg.linesPerThread; ++i)
+            {
+                local ^= do_work(cfg.workRounds, static_cast<std::uint64_t>(t) << 32 | static_cast<std::uint64_t>(i));
+
+                auto t0 = std::chrono::steady_clock::now();
+                LOG_TO(logger, INFO) << token
+                                     << " T=" << t
+                                     << " I=" << i
+                                     << " " << cfg.payload;
+                auto t1 = std::chrono::steady_clock::now();
+                threadLats[t].push_back(
+                    std::chrono::duration_cast<std::chrono::nanoseconds>(t1 - t0).count());
+            }
+
+            logger.shutdown(); // flush + drain this thread's own backend before it's destroyed
+
+            checksums[t] = local; });
+    }
+
+    for (auto &th : threads)
+        th.join();
+
+    auto end = std::chrono::steady_clock::now();
+
+    std::uint64_t checksum = 0;
+    for (auto x : checksums)
+        checksum ^= x;
+
+    {
+        std::vector<long long> allLat;
+        allLat.reserve(static_cast<std::size_t>(cfg.threads) * cfg.linesPerThread);
+        for (auto &v : threadLats)
+            allLat.insert(allLat.end(), v.begin(), v.end());
+        std::sort(allLat.begin(), allLat.end());
+
+        auto pct = [&](double p) {
+            return allLat[static_cast<std::size_t>(p / 100.0 * (allLat.size() - 1))];
+        };
+        std::cout << "\n[AsyncLogger<UringBackend> per-call latency (ns)]\n"
+                  << "  p50=" << pct(50) << "  p95=" << pct(95)
+                  << "  p99=" << pct(99) << "  max=" << allLat.back() << "\n";
+    }
+
+    // Sanity-check the shared-nothing expectation: one non-empty content file
+    // per thread (roll() also opens one extra, empty file per thread at
+    // shutdown - see UringBackend::stop() - so the raw file count is 2x this).
+    std::size_t contentFileCount = 0;
+    for (auto &d : threadDirs)
+        for (auto &f : files_in_dir(d))
+            if (fs::file_size(f) > 0)
+                ++contentFileCount;
+    if (contentFileCount != static_cast<std::size_t>(cfg.threads))
+    {
+        std::cout << "  [warn] expected " << cfg.threads
+                  << " non-empty files (one per thread), found " << contentFileCount << "\n";
+    }
+
+    // A given thread's dropped-count message is written asynchronously via
+    // io_uring and can complete (and thus land in the file) out of order
+    // relative to other in-flight writes to that same file - it is not
+    // guaranteed to be the last line. So count it by scanning every line in
+    // the full concatenated content, never by position.
+    std::string logs;
+    for (auto &d : threadDirs)
+        logs += read_all_files(d);
+
+    BenchResult r;
+    r.producerMs = std::chrono::duration<double, std::milli>(end - start).count();
+    r.endToEndMs = r.producerMs; // each thread already waits out its own backend via shutdown()
     r.attempted = attempted;
     r.logged = count_occurrences(logs, token);
     r.dropped = count_dropped_delta(logs);
@@ -416,9 +550,11 @@ int main()
 
     const fs::path syncDir = "/tmp/caelan_bench_sync";
     const fs::path asyncDir = "/tmp/caelan_bench_async";
+    const fs::path uringDir = "/tmp/caelan_bench_uring";
 
     const std::string syncToken = "<<SYNC_BENCH_TOKEN>>";
     const std::string asyncToken = "<<ASYNC_BENCH_TOKEN>>";
+    const std::string uringToken = "<<URING_BENCH_TOKEN>>";
 
     std::cout << "Starting logger benchmark...\n";
     std::cout << "threads=" << cfg.threads
@@ -446,10 +582,12 @@ int main()
 
     const BenchResult sync = run_sync(cfg, syncDir, syncToken);
     const BenchResult async = run_async(cfg, asyncDir, asyncToken);
+    const BenchResult uring = run_async_uring(cfg, uringDir, uringToken);
     const BenchResult spd = run_spdlog_async(cfg, spdlogDir, spdlogToken, spdlogQueue);
 
     print_result("SyncLogger (mutex + write)", sync);
-    print_result("AsyncLogger (CaelanLogger)", async);
+    print_result("AsyncLogger (CaelanLogger, SharedBackend)", async);
+    print_result("AsyncLogger (CaelanLogger, UringBackend, shared-nothing)", uring);
     std::cout << "\n";
     print_result("spdlog async (1 thread, overrun_oldest)", spd);
 
@@ -458,12 +596,15 @@ int main()
               << " / " << sync.attempted << "\n";
     std::cout << "  async logged+dropped = " << (async.logged + async.dropped)
               << " / " << async.attempted << "\n";
+    std::cout << "  uring logged+dropped = " << (uring.logged + uring.dropped)
+              << " / " << uring.attempted << "\n";
     std::cout << "  spd   logged+dropped = " << (spd.logged + spd.dropped)
               << " / " << spd.attempted << "\n";
 
     std::cout << "\nLog dirs:\n";
     std::cout << "  sync:  " << syncDir << "\n";
     std::cout << "  async: " << asyncDir << "\n";
+    std::cout << "  uring: " << uringDir << " (" << cfg.threads << " per-thread subdirs)\n";
 
     return 0;
 }

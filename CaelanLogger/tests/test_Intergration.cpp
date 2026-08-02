@@ -10,7 +10,8 @@
 #include <vector>
 
 #include "AsyncLogger.h"
-#include "BackendLogger.h"
+#include "SharedBackend.h"
+#include "UringBackend.h"
 
 namespace fs = std::filesystem;
 
@@ -77,7 +78,7 @@ static std::size_t count_occurrences(const std::string &text, const std::string 
     return count;
 }
 
-// FileUtil::roll() writes dropped delta and resets the counter.
+// NormalWriter::roll() writes dropped delta and resets the counter.
 // So all "dropped: N" lines should be summed.
 static std::size_t count_dropped_delta(const std::string &text)
 {
@@ -126,7 +127,7 @@ TEST(LoggerIntegration, SingleThread_LoggedPlusDroppedEqualsAttempted)
     const std::string token = make_unique_token("SINGLE");
     const std::string payload(180, 'X');
 
-    AsyncLogger logger(bufSize, 32, logDir.string());
+    AsyncLogger<SharedBackend> logger(bufSize, 32, logDir.string());
 
     for (int i = 0; i < kLines; ++i)
     {
@@ -169,7 +170,7 @@ TEST(LoggerIntegration, MultiThread_LoggedPlusDroppedEqualsAttempted)
 
     const std::string payload(120, 'X');
 
-    AsyncLogger logger(bufSize, 32, logDir.string());
+    AsyncLogger<SharedBackend> logger(bufSize, 32, logDir.string());
 
     std::vector<std::thread> threads;
     threads.reserve(kThreads);
@@ -211,12 +212,19 @@ TEST(LoggerIntegration, MultiThread_LoggedPlusDroppedEqualsAttempted)
         << "logged=" << logged << " dropped=" << dropped;
 }
 
-TEST(LeakCheck, BackendLoggerDestroysCleanly)
+TEST(LeakCheck, SharedBackendDestroysCleanly)
 {
     {
-        BackendLogger bl(2000, 32, "/tmp/test_log");
-        bl.start();
-        bl.stop();
+        SharedBackend bl(2000, 32, "/tmp/test_log");
+    }
+
+    SUCCEED();
+}
+
+TEST(LeakCheck, UringBackendDestroysCleanly)
+{
+    {
+        UringBackend bl(2000, 32, "/tmp/test_log_uring");
     }
 
     SUCCEED();

@@ -1,38 +1,40 @@
 #pragma once
 #include <atomic>
+#include <memory>
 #include <unordered_map>
-#include "BackendLogger.h"
 #include "ThreadLogger.h"
 #include "LogStream.h"
 #include "Level.h"
 
+template <typename BackendT>
 class AsyncLogger
 {
 public:
     explicit AsyncLogger(size_t bufSize, size_t queueSize = 32, std::string logDir = "")
         : backend_(bufSize, queueSize, std::move(logDir)), bufSize_(bufSize), queueSize_(queueSize)
     {
-        backend_.start();
     }
 
     ~AsyncLogger()
     {
-        tlsMap().erase(&backend_);
-        backend_.stop();
+        shutdown();
     }
 
     // Non-copyable, non-movable (owns a running thread)
     AsyncLogger(const AsyncLogger &) = delete;
     AsyncLogger &operator=(const AsyncLogger &) = delete;
 
-    ThreadLogger &tls()
+    ThreadLogger<BackendT> &tls()
     {
         auto [it, _] = tlsMap().try_emplace(&backend_, bufSize_, &backend_);
         return it->second;
     }
 
+    // Flushes and joins the backend's writer thread. Safe to call more than
+    // once (including implicitly via the destructor).
     void shutdown()
     {
+        tlsMap().erase(&backend_);
         backend_.stop();
     }
 
@@ -42,13 +44,13 @@ public:
     }
 
 private:
-    static std::unordered_map<BackendLogger *, ThreadLogger> &tlsMap()
+    static std::unordered_map<BackendT *, ThreadLogger<BackendT>> &tlsMap()
     {
-        thread_local std::unordered_map<BackendLogger *, ThreadLogger> map;
+        thread_local std::unordered_map<BackendT *, ThreadLogger<BackendT>> map;
         return map;
     }
 
-    BackendLogger backend_;
+    BackendT backend_;
     size_t bufSize_;
     size_t queueSize_;
 };
