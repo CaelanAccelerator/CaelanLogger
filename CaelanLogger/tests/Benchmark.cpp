@@ -1,8 +1,10 @@
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <iomanip>
 #include <iostream>
 #include <mutex>
@@ -221,7 +223,8 @@ static BenchResult run_sync(const BenchConfig &cfg, const fs::path &dir, const s
     return r;
 }
 
-static BenchResult run_async(const BenchConfig &cfg, const fs::path &dir, const std::string &token)
+static BenchResult run_async(const BenchConfig &cfg, const fs::path &dir, const std::string &token,
+                             bool verbose = true)
 {
     reset_dir(dir);
 
@@ -273,6 +276,7 @@ static BenchResult run_async(const BenchConfig &cfg, const fs::path &dir, const 
 
     auto producersDone = std::chrono::steady_clock::now();
 
+    if (verbose)
     {
         std::vector<long long> allLat;
         allLat.reserve(static_cast<std::size_t>(cfg.threads) * cfg.linesPerThread);
@@ -322,11 +326,14 @@ static BenchResult run_async(const BenchConfig &cfg, const fs::path &dir, const 
 // writer thread, all producer threads funnel through an MPSC queue), each
 // thread here owns its own AsyncLogger<UringBackend> end to end, so we
 // expect exactly cfg.threads files (one per thread's own subdirectory),
-// not one shared file. Each thread also calls shutdownAll() itself before its
-// AsyncLogger goes out of scope, so producer time already includes that
-// thread's own flush - there's no separate "backend catches up" phase like
-// there is for SharedBackend.
-static BenchResult run_async_uring(const BenchConfig &cfg, const fs::path &dir, const std::string &token)
+// not one shared file. Each thread calls shutdownAll() itself (draining its
+// own backend) before its AsyncLogger goes out of scope, but that drain is
+// timed separately from the logging loop (via producerDone[t], captured
+// right before shutdownAll() runs) so producerMs stays on the same basis as
+// the other scenarios: time to finish emitting logs, not to finish flushing
+// them. endToEndMs still includes every thread's drain.
+static BenchResult run_async_uring(const BenchConfig &cfg, const fs::path &dir, const std::string &token,
+                                    bool verbose = true)
 {
     reset_dir(dir);
 
@@ -353,6 +360,8 @@ static BenchResult run_async_uring(const BenchConfig &cfg, const fs::path &dir, 
     // buffers of its own, with no cross-thread sharing possible.
     const int poolCapacityPerThread = 32 / cfg.threads;
 
+    std::vector<std::chrono::steady_clock::time_point> producerDone(cfg.threads);
+
     auto start = std::chrono::steady_clock::now();
 
     for (int t = 0; t < cfg.threads; ++t)
@@ -378,6 +387,8 @@ static BenchResult run_async_uring(const BenchConfig &cfg, const fs::path &dir, 
                     std::chrono::duration_cast<std::chrono::nanoseconds>(t1 - t0).count());
             }
 
+            producerDone[t] = std::chrono::steady_clock::now();
+
             logger.shutdownAll(); // flush + drain this thread's own backend before it's destroyed
 
             checksums[t] = local; });
@@ -387,11 +398,13 @@ static BenchResult run_async_uring(const BenchConfig &cfg, const fs::path &dir, 
         th.join();
 
     auto end = std::chrono::steady_clock::now();
+    auto producersDone = *std::max_element(producerDone.begin(), producerDone.end());
 
     std::uint64_t checksum = 0;
     for (auto x : checksums)
         checksum ^= x;
 
+    if (verbose)
     {
         std::vector<long long> allLat;
         allLat.reserve(static_cast<std::size_t>(cfg.threads) * cfg.linesPerThread);
@@ -431,8 +444,8 @@ static BenchResult run_async_uring(const BenchConfig &cfg, const fs::path &dir, 
         logs += read_all_files(d);
 
     BenchResult r;
-    r.producerMs = std::chrono::duration<double, std::milli>(end - start).count();
-    r.endToEndMs = r.producerMs; // each thread already waits out its own backend via shutdown()
+    r.producerMs = std::chrono::duration<double, std::milli>(producersDone - start).count();
+    r.endToEndMs = std::chrono::duration<double, std::milli>(end - start).count();
     r.attempted = attempted;
     r.logged = count_occurrences(logs, token);
     r.dropped = count_dropped_delta(logs);
@@ -441,7 +454,8 @@ static BenchResult run_async_uring(const BenchConfig &cfg, const fs::path &dir, 
 }
 
 static BenchResult run_spdlog_async(const BenchConfig &cfg, const fs::path &dir,
-                                    const std::string &token, std::size_t queueSize)
+                                    const std::string &token, std::size_t queueSize,
+                                    bool verbose = true)
 {
     reset_dir(dir);
 
@@ -488,6 +502,7 @@ static BenchResult run_spdlog_async(const BenchConfig &cfg, const fs::path &dir,
 
     auto producersDone = std::chrono::steady_clock::now();
 
+    if (verbose)
     {
         std::vector<long long> allLat;
         allLat.reserve(static_cast<std::size_t>(cfg.threads) * cfg.linesPerThread);
@@ -525,45 +540,96 @@ static BenchResult run_spdlog_async(const BenchConfig &cfg, const fs::path &dir,
     return r;
 }
 
-static void print_result(const std::string &name, const BenchResult &r)
+struct RunStats
 {
-    const double producerLinesPerSec = r.attempted / (r.producerMs / 1000.0);
-    const double endToEndLinesPerSec = r.attempted / (r.endToEndMs / 1000.0);
-    const double dropPct = 100.0 * static_cast<double>(r.dropped) / static_cast<double>(r.attempted);
+    double mean = 0.0, stddev = 0.0, min = 0.0, max = 0.0;
+};
 
-    std::cout << "\n[" << name << "]\n";
-    std::cout << "  producer time: " << std::fixed << std::setprecision(2) << r.producerMs << " ms\n";
-    std::cout << "  end-to-end time: " << std::fixed << std::setprecision(2) << r.endToEndMs << " ms\n";
-    std::cout << "  attempted: " << r.attempted << "\n";
-    std::cout << "  logged: " << r.logged << "\n";
-    std::cout << "  dropped: " << r.dropped << " / " << r.attempted
-              << " (" << std::fixed << std::setprecision(1) << dropPct << "%)\n";
-    std::cout << "  producer lines/sec: " << std::fixed << std::setprecision(0) << producerLinesPerSec << "\n";
-    std::cout << "  end-to-end lines/sec: " << std::fixed << std::setprecision(0) << endToEndLinesPerSec << "\n";
-    std::cout << "  checksum: 0x" << std::hex << r.checksum << std::dec << "\n";
+static RunStats summarize(const std::vector<double> &v)
+{
+    RunStats s;
+    if (v.empty())
+        return s;
+
+    s.min = *std::min_element(v.begin(), v.end());
+    s.max = *std::max_element(v.begin(), v.end());
+
+    double sum = 0.0;
+    for (double x : v)
+        sum += x;
+    s.mean = sum / v.size();
+
+    double sq = 0.0;
+    for (double x : v)
+        sq += (x - s.mean) * (x - s.mean);
+    s.stddev = v.size() > 1 ? std::sqrt(sq / (v.size() - 1)) : 0.0;
+
+    return s;
+}
+
+static void print_stats(const std::string &label, const RunStats &s, const std::string &unit)
+{
+    std::cout << "  " << std::left << std::setw(22) << label << std::right
+              << "mean=" << std::fixed << std::setprecision(2) << std::setw(12) << s.mean << unit
+              << "  stddev=" << std::setw(10) << s.stddev << unit
+              << "  min=" << std::setw(12) << s.min << unit
+              << "  max=" << std::setw(12) << s.max << unit << "\n";
+}
+
+// Runs `fn` `runs` times, resetting its own log dir each time, and prints
+// mean/stddev/min/max across the runs instead of one noisy line per run.
+static void run_many(const std::string &name, int runs, const std::function<BenchResult()> &fn)
+{
+    std::vector<double> producerMs, endToEndMs, dropPct, producerLps, endToEndLps;
+    std::size_t attempted = 0;
+
+    for (int i = 0; i < runs; ++i)
+    {
+        BenchResult r = fn();
+        attempted = r.attempted;
+
+        if (r.logged + r.dropped != r.attempted)
+        {
+            std::cout << "  [warn] " << name << " run " << i << ": logged+dropped("
+                      << (r.logged + r.dropped) << ") != attempted(" << r.attempted << ")\n";
+        }
+
+        producerMs.push_back(r.producerMs);
+        endToEndMs.push_back(r.endToEndMs);
+        dropPct.push_back(100.0 * static_cast<double>(r.dropped) / static_cast<double>(r.attempted));
+        producerLps.push_back(r.attempted / (r.producerMs / 1000.0));
+        endToEndLps.push_back(r.attempted / (r.endToEndMs / 1000.0));
+    }
+
+    std::cout << "\n[" << name << "]  (n=" << runs << ", attempted/run=" << attempted << ")\n";
+    print_stats("producer time", summarize(producerMs), " ms");
+    print_stats("end-to-end time", summarize(endToEndMs), " ms");
+    print_stats("dropped", summarize(dropPct), " %");
+    print_stats("producer lines/sec", summarize(producerLps), "");
+    print_stats("end-to-end lines/sec", summarize(endToEndLps), "");
 }
 
 int main()
 {
     const BenchConfig cfg;
+    constexpr int kRuns = 20;
 
     const fs::path syncDir = "/tmp/caelan_bench_sync";
     const fs::path asyncDir = "/tmp/caelan_bench_async";
     const fs::path uringDir = "/tmp/caelan_bench_uring";
+    const fs::path spdlogDir = "/tmp/caelan_bench_spdlog";
 
     const std::string syncToken = "<<SYNC_BENCH_TOKEN>>";
     const std::string asyncToken = "<<ASYNC_BENCH_TOKEN>>";
     const std::string uringToken = "<<URING_BENCH_TOKEN>>";
+    const std::string spdlogToken = "<<SPDLOG_BENCH_TOKEN>>";
 
-    std::cout << "Starting logger benchmark...\n";
+    std::cout << "Starting logger benchmark (n=" << kRuns << " runs per scenario)...\n";
     std::cout << "threads=" << cfg.threads
               << " lines/thread=" << cfg.linesPerThread
               << " payload=" << cfg.payload.size()
               << " workRounds=" << cfg.workRounds
               << "\n";
-
-    const fs::path spdlogDir = "/tmp/caelan_bench_spdlog";
-    const std::string spdlogToken = "<<SPDLOG_BENCH_TOKEN>>";
 
     // Match spdlog queue memory to CaelanLogger's total buffer pool.
     // CaelanLogger: queueSize_=32 buffers x asyncBufferSize bytes = total pool.
@@ -577,33 +643,23 @@ int main()
     std::cout << "\nMemory budget:\n";
     std::cout << "  CaelanLogger: " << (caelMemBytes / 1024) << " KB  (32 x " << (cfg.asyncBufferSize / 1024) << " KB buffers)\n";
     std::cout << "  spdlog queue: ~" << (spdlogQueue * spdlogMsgBytes / 1024) << " KB  (" << spdlogQueue << " msgs x ~" << spdlogMsgBytes << " B)\n";
-    std::cout << "Note: spdlog formats on producer thread; CaelanLogger defers to writer thread.\n";
+    std::cout << "Note: spdlog pattern is \"%v\" (no timestamp/level added); CaelanLogger always\n"
+                 "adds both on the producer thread, so it does strictly more work per call.\n";
 
-    const BenchResult sync = run_sync(cfg, syncDir, syncToken);
-    const BenchResult async = run_async(cfg, asyncDir, asyncToken);
-    const BenchResult uring = run_async_uring(cfg, uringDir, uringToken);
-    const BenchResult spd = run_spdlog_async(cfg, spdlogDir, spdlogToken, spdlogQueue);
+    run_many("SyncLogger (mutex + write)", kRuns,
+             [&] { return run_sync(cfg, syncDir, syncToken); });
+    run_many("AsyncLogger (CaelanLogger, SharedBackend)", kRuns,
+             [&] { return run_async(cfg, asyncDir, asyncToken, /*verbose=*/false); });
+    run_many("AsyncLogger (CaelanLogger, UringBackend, shared-nothing)", kRuns,
+             [&] { return run_async_uring(cfg, uringDir, uringToken, /*verbose=*/false); });
+    run_many("spdlog async (1 thread, overrun_oldest)", kRuns,
+             [&] { return run_spdlog_async(cfg, spdlogDir, spdlogToken, spdlogQueue, /*verbose=*/false); });
 
-    print_result("SyncLogger (mutex + write)", sync);
-    print_result("AsyncLogger (CaelanLogger, SharedBackend)", async);
-    print_result("AsyncLogger (CaelanLogger, UringBackend, shared-nothing)", uring);
-    std::cout << "\n";
-    print_result("spdlog async (1 thread, overrun_oldest)", spd);
-
-    std::cout << "\nValidation:\n";
-    std::cout << "  sync  logged+dropped = " << (sync.logged + sync.dropped)
-              << " / " << sync.attempted << "\n";
-    std::cout << "  async logged+dropped = " << (async.logged + async.dropped)
-              << " / " << async.attempted << "\n";
-    std::cout << "  uring logged+dropped = " << (uring.logged + uring.dropped)
-              << " / " << uring.attempted << "\n";
-    std::cout << "  spd   logged+dropped = " << (spd.logged + spd.dropped)
-              << " / " << spd.attempted << "\n";
-
-    std::cout << "\nLog dirs:\n";
+    std::cout << "\nLog dirs (last run's output only):\n";
     std::cout << "  sync:  " << syncDir << "\n";
     std::cout << "  async: " << asyncDir << "\n";
     std::cout << "  uring: " << uringDir << " (" << cfg.threads << " per-thread subdirs)\n";
+    std::cout << "  spdlog:" << spdlogDir << "\n";
 
     return 0;
 }
