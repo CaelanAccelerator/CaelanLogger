@@ -28,7 +28,7 @@ jobs:
             -DCMAKE_CXX_COMPILER=${{ matrix.compiler == 'gcc' && 'g++' || 'clang++' }}
 
       - name: Build
-        run: cmake --build build
+        run: cmake --build build --parallel
 
       - name: Test
         run: ctest --test-dir build --output-on-failure
@@ -43,6 +43,14 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y cmake ninja-build clang
 
+      # Ubuntu kernels since 6.5.0-25 raised vm.mmap_rnd_bits from 28 to 32.
+      # The sanitizer runtimes cannot map their shadow memory under that much
+      # ASLR entropy and segfault during startup, before main() runs - randomly,
+      # in roughly a fifth of runs. 28 is the only part of this that is a
+      # workaround; nothing about the build or the code needs to change.
+      - name: Lower ASLR entropy for the sanitizer runtime
+        run: sudo sysctl -w vm.mmap_rnd_bits=28
+
       - name: Configure (ASan)
         run: |
           cmake -S . -B asan -G Ninja \
@@ -51,7 +59,7 @@ jobs:
             -DENABLE_ASAN=ON
 
       - name: Build
-        run: cmake --build asan
+        run: cmake --build asan --parallel
 
       - name: Test (ASan)
         env:
@@ -68,6 +76,11 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y cmake ninja-build clang
 
+      # Same ASLR-vs-shadow-memory problem as the ASan job; TSan reports it as
+      # "FATAL: ThreadSanitizer: unexpected memory mapping".
+      - name: Lower ASLR entropy for the sanitizer runtime
+        run: sudo sysctl -w vm.mmap_rnd_bits=28
+
       - name: Configure (TSan)
         run: |
           cmake -S . -B tsan -G Ninja \
@@ -77,7 +90,7 @@ jobs:
             -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=thread"
 
       - name: Build
-        run: cmake --build tsan
+        run: cmake --build tsan --parallel
 
       - name: Test (TSan)
         env:
