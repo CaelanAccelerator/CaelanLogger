@@ -86,7 +86,7 @@ template <typename Derived>
 void FileUtil<Derived>::roll()
 {
 	size_t n = dropped_.exchange(0, std::memory_order_relaxed);
-	if (n > 0 && fd_ >= 0)
+	if (fd_ >= 0)
 	{
 		constexpr size_t kDropMsgCap = 64;
 		char *msg = new char[kDropMsgCap];
@@ -145,11 +145,16 @@ std::string FileUtil<Derived>::makeFullPath(const std::string &filename) const
 	return (dir_ / filename).string();
 }
 
+// `order` is a function-local static of a class template, so it is shared by
+// every FileUtil<Derived> instance in the process. Shared-nothing backends open
+// files concurrently, which made the plain `int` read-modify-write a data race
+// (ThreadSanitizer flags it with 8 concurrent UringBackends). Unsigned so the
+// wraparound past INT_MAX stays defined and `% 10000` never goes negative.
 template <typename Derived>
 std::string FileUtil<Derived>::generateFileName()
 {
-	static int order = 0;
+	static std::atomic<unsigned> order{0};
 	std::string timeStr = LogTime::nowDateString();
-	order = (order + 1) % 10000;
-	return timeStr + "_LOG_" + std::to_string(order);
+	unsigned n = (order.fetch_add(1, std::memory_order_relaxed) + 1) % 10000;
+	return timeStr + "_LOG_" + std::to_string(n);
 }
