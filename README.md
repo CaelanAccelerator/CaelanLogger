@@ -32,9 +32,10 @@ methodology, and design notes, see
 - **Batched disk I/O**: backend drains all pending buffers per write cycle
 - **Size-based file rolling** with deterministic log directory
   (env override via `CAELAN_LOG_DIR`)
-- **Pluggable backend**: `AsyncLogger<BackendT>` — swap the shared MPSC
-  backend (`SharedBackend`) for a shared-nothing, io_uring-based one
-  (`UringBackend`) with one template parameter (see below)
+- **Pluggable backend**: `AsyncLogger<BackendT>` — the backend contract is
+  three methods (`acquire()`, `submit()`, `record_drop()`), so a host
+  application can supply its own (e.g. one driven by an existing io_uring
+  event loop) with one template parameter
 - **GitHub Actions CI**:
   GCC/Clang × Debug/Release × {ASan+UBSan, TSan}
 

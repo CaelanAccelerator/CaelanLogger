@@ -11,7 +11,6 @@
 
 #include "AsyncLogger.h"
 #include "SharedBackend.h"
-#include "UringBackend.h"
 
 namespace fs = std::filesystem;
 
@@ -221,11 +220,3 @@ TEST(LeakCheck, SharedBackendDestroysCleanly)
     SUCCEED();
 }
 
-TEST(LeakCheck, UringBackendDestroysCleanly)
-{
-    {
-        UringBackend bl(2000, 32, "/tmp/test_log_uring");
-    }
-
-    SUCCEED();
-}

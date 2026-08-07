@@ -86,17 +86,6 @@ def parse_latency_ns(output: str) -> dict:
         out["async_lat_max_ns"] = int(m.group(4))
 
     m = re.search(
-        r"\[AsyncLogger<UringBackend> per-call latency \(ns\)\]\s+"
-        r"p50=(\d+)\s+p95=(\d+)\s+p99=(\d+)\s+max=(\d+)",
-        output,
-    )
-    if m:
-        out["uring_lat_p50_ns"] = int(m.group(1))
-        out["uring_lat_p95_ns"] = int(m.group(2))
-        out["uring_lat_p99_ns"] = int(m.group(3))
-        out["uring_lat_max_ns"] = int(m.group(4))
-
-    m = re.search(
         r"\[spdlog per-call latency \(ns\)\]\s+"
         r"p50=(\d+)\s+p95=(\d+)\s+p99=(\d+)\s+max=(\d+)",
         output,
@@ -124,11 +113,6 @@ def parse_validation(output: str) -> dict:
         out["async_valid_sum"] = int(m.group(1))
         out["async_valid_expected"] = int(m.group(2))
 
-    m = re.search(r"\buring\s+logged\+dropped\s*=\s*([0-9]+)\s*/\s*([0-9]+)", output)
-    if m:
-        out["uring_valid_sum"] = int(m.group(1))
-        out["uring_valid_expected"] = int(m.group(2))
-
     m = re.search(r"\bspd\s+logged\+dropped\s*=\s*([0-9]+)\s*/\s*([0-9]+)", output)
     if m:
         out["spd_valid_sum"] = int(m.group(1))
@@ -140,7 +124,6 @@ def parse_validation(output: str) -> dict:
 def flatten_result(run_id: int, returncode: int, output: str) -> dict:
     sync   = parse_section(output, "SyncLogger (mutex + write)")
     async_ = parse_section(output, "AsyncLogger (CaelanLogger, SharedBackend)")
-    uring  = parse_section(output, "AsyncLogger (CaelanLogger, UringBackend, shared-nothing)")
     spd    = parse_section(output, "spdlog async (1 thread, overrun_oldest)")
     lat    = parse_latency_ns(output)
     valid  = parse_validation(output)
@@ -155,9 +138,6 @@ def flatten_result(run_id: int, returncode: int, output: str) -> dict:
 
     for k, v in async_.items():
         row[f"async_{k}"] = v
-
-    for k, v in uring.items():
-        row[f"uring_{k}"] = v
 
     row.update(lat)
 
@@ -177,7 +157,7 @@ def write_summary(results_csv: Path, summary_csv: Path):
 
     numeric_cols = []
     for col in rows[0].keys():
-        if col in ("run", "returncode", "sync_checksum", "async_checksum", "uring_checksum"):
+        if col in ("run", "returncode", "sync_checksum", "async_checksum"):
             continue
 
         values = []
@@ -262,10 +242,6 @@ def main():
             f"dropped={row.get('async_dropped')} "
             f"e2e={row.get('async_end_to_end_time_ms')}ms "
             f"lat_p99={row.get('async_lat_p99_ns')}ns | "
-            f"uring: logged={row.get('uring_logged')} "
-            f"dropped={row.get('uring_dropped')} "
-            f"e2e={row.get('uring_end_to_end_time_ms')}ms "
-            f"lat_p99={row.get('uring_lat_p99_ns')}ns | "
             f"spd: logged={row.get('spd_logged')} "
             f"dropped={row.get('spd_dropped')} "
             f"e2e={row.get('spd_end_to_end_time_ms')}ms "
@@ -303,27 +279,10 @@ def main():
         "async_lat_p99_ns",
         "async_lat_max_ns",
 
-        "uring_producer_time_ms",
-        "uring_end_to_end_time_ms",
-        "uring_attempted",
-        "uring_logged",
-        "uring_dropped",
-        "uring_dropped_denominator",
-        "uring_dropped_pct",
-        "uring_producer_lines_sec",
-        "uring_end_to_end_lines_sec",
-        "uring_checksum",
-        "uring_lat_p50_ns",
-        "uring_lat_p95_ns",
-        "uring_lat_p99_ns",
-        "uring_lat_max_ns",
-
         "sync_valid_sum",
         "sync_valid_expected",
         "async_valid_sum",
         "async_valid_expected",
-        "uring_valid_sum",
-        "uring_valid_expected",
 
         "spd_producer_time_ms",
         "spd_end_to_end_time_ms",

@@ -148,7 +148,7 @@ std::string FileUtil<Derived>::makeFullPath(const std::string &filename) const
 // `order` is a function-local static of a class template, so it is shared by
 // every FileUtil<Derived> instance in the process. Shared-nothing backends open
 // files concurrently, which made the plain `int` read-modify-write a data race
-// (ThreadSanitizer flags it with 8 concurrent UringBackends). Unsigned so the
+// (ThreadSanitizer flags it with 8 concurrent backends). Unsigned so the
 // wraparound past INT_MAX stays defined and `% 10000` never goes negative.
 template <typename Derived>
 std::string FileUtil<Derived>::generateFileName()
