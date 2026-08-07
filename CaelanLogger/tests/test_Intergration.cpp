@@ -134,11 +134,11 @@ TEST(LoggerIntegration, SingleThread_LoggedPlusDroppedEqualsAttempted)
         LOG_TO(logger, INFO) << "L=" << i << " " << token << " " << payload;
 
         if ((i + 1) % kHandoffEvery == 0)
-            logger.tls().handoff();
+            logger.tls()->handoff();
     }
 
-    logger.tls().handoff(true);
-    logger.shutdown();
+    logger.tls()->handoff();
+    logger.shutdownAll();
 
     const std::string logs = read_all_logs(logDir);
 
@@ -187,16 +187,16 @@ TEST(LoggerIntegration, MultiThread_LoggedPlusDroppedEqualsAttempted)
                                      << " " << payload;
 
                 if ((i + 1) % kHandoffEvery == 0)
-                    logger.tls().handoff();
+                    logger.tls()->handoff();
             }
 
-            logger.tls().handoff(true); });
+            logger.tls()->handoff(); });
     }
 
     for (auto &th : threads)
         th.join();
 
-    logger.shutdown();
+    logger.shutdownAll();
 
     const std::string logs = read_all_logs(logDir);
 

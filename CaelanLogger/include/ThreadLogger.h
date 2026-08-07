@@ -1,5 +1,4 @@
 #pragma once
-#include <string>
 #include <cstring>
 #include <memory>
 #include <Buffer.h>
@@ -11,15 +10,9 @@ class ThreadLogger
 public:
 	ThreadLogger(size_t, BackendT *);
 	~ThreadLogger();
-	void handoff(bool force = false);
+	void handoff();
 	Buffer *getCurBuffer() const { return curBuffer_.get(); }
-	void recordDrop() const
-	{
-		if (backendLogger_)
-		{
-			backendLogger_->record_drop();
-		}
-	}
+	void recordDrop() const{backendLogger_->record_drop();}
 	unsigned long long getLostLogs() const { return lostLogs; }
 	void setLostLogs(unsigned long long n) { lostLogs = n; }
 
@@ -43,7 +36,7 @@ ThreadLogger<BackendT>::~ThreadLogger()
 }
 
 template <typename BackendT>
-void ThreadLogger<BackendT>::handoff(bool force)
+void ThreadLogger<BackendT>::handoff()
 {
 	if (!curBuffer_)
 	{

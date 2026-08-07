@@ -1,6 +1,4 @@
 #include "SharedBackend.h"
-#include "SpinGuard.h"
-#include "TimeUtil.h"
 
 SharedBackend::SharedBackend(size_t bufSize, size_t poolCapacity, std::string dir)
 		: poolCapacity_(poolCapacity),

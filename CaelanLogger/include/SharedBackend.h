@@ -5,7 +5,6 @@
 #include <ThreadLogger.h>
 #include <memory>
 #include <thread>
-#include <vector>
 #include "NormalWriter.h"
 #include "Buffer.h"
 #include "MPSCSpinLockQueue.h"
@@ -21,7 +20,7 @@ public:
 	std::unique_ptr<Buffer> acquire();
 	void submit(std::unique_ptr<Buffer>);
 	void record_drop();
-	void stop();
+
 
 private:
 	friend class BackendLoggerTestAccess;
@@ -37,4 +36,5 @@ private:
 	void write();
 	void start();
 	void run();
+	void stop();
 };

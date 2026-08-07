@@ -1,6 +1,5 @@
 #pragma once
 #include <string>
-#include <memory>
 #include "Buffer.h"
 #include "ThreadLogger.h"
 #include "Level.h"
@@ -80,12 +79,15 @@ void LogStream<BackendT>::convertInt(T number)
 template <typename BackendT>
 LogStream<BackendT>::LogStream(ThreadLogger<BackendT> *target, CaelanLogger::Level level) : target_(target)
 {
-    curBuffer_ = target_ ? target_->getCurBuffer() : nullptr;
+    if (!target_)
+        return;
+
+    curBuffer_ = target_->getCurBuffer();
 
     if (!curBuffer_)
     {
         target_->handoff();
-        curBuffer_ = target_ ? target_->getCurBuffer() : nullptr;
+        curBuffer_ = target_->getCurBuffer();
     }
     if (!curBuffer_)
         return;
@@ -93,7 +95,7 @@ LogStream<BackendT>::LogStream(ThreadLogger<BackendT> *target, CaelanLogger::Lev
     if (curBuffer_->remaining() < kMaxLineLength)
     {
         target_->handoff();
-        curBuffer_ = target_ ? target_->getCurBuffer() : nullptr;
+        curBuffer_ = target_->getCurBuffer();
         if (!curBuffer_ || curBuffer_->remaining() < kMaxLineLength) // to
         {
             target_->recordDrop();

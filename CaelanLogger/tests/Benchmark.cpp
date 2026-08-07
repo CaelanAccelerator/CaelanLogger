@@ -1,5 +1,4 @@
 #include <algorithm>
-#include <atomic>
 #include <chrono>
 #include <cstdlib>
 #include <filesystem>
@@ -264,7 +263,7 @@ static BenchResult run_async(const BenchConfig &cfg, const fs::path &dir, const 
                     std::chrono::duration_cast<std::chrono::nanoseconds>(t1 - t0).count());
             }
 
-            logger.tls().handoff(true);
+            logger.tls()->handoff();
 
             checksums[t] = local; });
     }
@@ -289,7 +288,7 @@ static BenchResult run_async(const BenchConfig &cfg, const fs::path &dir, const 
                   << "  p99=" << pct(99) << "  max=" << allLat.back() << "\n";
     }
 
-    logger.shutdown();
+    logger.shutdownAll();
 
     auto end = std::chrono::steady_clock::now();
 
@@ -323,7 +322,7 @@ static BenchResult run_async(const BenchConfig &cfg, const fs::path &dir, const 
 // writer thread, all producer threads funnel through an MPSC queue), each
 // thread here owns its own AsyncLogger<UringBackend> end to end, so we
 // expect exactly cfg.threads files (one per thread's own subdirectory),
-// not one shared file. Each thread also calls shutdown() itself before its
+// not one shared file. Each thread also calls shutdownAll() itself before its
 // AsyncLogger goes out of scope, so producer time already includes that
 // thread's own flush - there's no separate "backend catches up" phase like
 // there is for SharedBackend.
@@ -379,7 +378,7 @@ static BenchResult run_async_uring(const BenchConfig &cfg, const fs::path &dir, 
                     std::chrono::duration_cast<std::chrono::nanoseconds>(t1 - t0).count());
             }
 
-            logger.shutdown(); // flush + drain this thread's own backend before it's destroyed
+            logger.shutdownAll(); // flush + drain this thread's own backend before it's destroyed
 
             checksums[t] = local; });
     }
